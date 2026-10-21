@@ -49,7 +49,11 @@ export type RunKind =
   | 'session'
   | 'flow_reproduction'
   | 'procedure'
-  | 'reconciliation';
+  | 'reconciliation'
+  | 'network_scan'
+  | 'firecrawl_map'
+  | 'firecrawl_scrape'
+  | 'burp_import';
 export type StepKind =
   | 'http_observe'
   | 'http_probe'
@@ -58,7 +62,11 @@ export type StepKind =
   | 'browser_session'
   | 'browser_flow'
   | 'procedure_step'
-  | 'reconcile';
+  | 'reconcile'
+  | 'network_scan'
+  | 'firecrawl_map'
+  | 'firecrawl_scrape'
+  | 'burp_import';
 export type EffectStatus =
   | 'not_dispatched'
   | 'dispatched'
@@ -390,6 +398,8 @@ export interface CreateRunRequest {
   identity_id: Id | null;
   budget_override: Budget | null;
   note: string;
+  targets?: string[];
+  params?: Record<string, unknown>;
   base_url?: string | null;
   tenant?: string | null;
   identity_ids?: Id[];

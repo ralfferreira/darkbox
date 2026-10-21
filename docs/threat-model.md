@@ -160,6 +160,25 @@ plugins.
 Residual risk: the build toolchain and base images are trusted inputs. Pin
 digests before publishing a release.
 
+### Optional adapters
+
+- **Nmap.** The adapter is a tool that sends packets. Scope is enforced by
+  passing only approved hosts and ports, checking each pair before the process
+  starts, and using a TCP connect scan without raw sockets. A policy that
+  allows a wide port range widens what Nmap can touch; the policy is the limit,
+  not the crawler.
+- **Firecrawl.** The provider fetches from its own egress. DarkBox authorizes
+  the URL, refuses private targets and treats returned links as candidates,
+  but cannot attest the provider's network path or that its rendering is
+  complete. Evidence is labelled as a managed capture.
+- **Burp.** Imported traffic is untrusted history. Scope is re-checked per
+  exchange, secrets are sanitized, and import never creates new requests. A
+  broad Burp history can contain out-of-scope targets; those are skipped and
+  recorded, not accepted because Burp saw them.
+- **MCP transports.** The MCP client treats server responses as untrusted
+  JSON, caps response size and follows only the initialize/tools contract. An
+  MCP endpoint is a local or private dependency, never a public listener.
+
 ### Denial of service against the platform
 
 Large bodies, many events, or many open SSE connections.
@@ -185,6 +204,8 @@ release; the API is loopback-only by default.
 | `DARKBOX_INLINE_WORKER` | `1` | API processes runs; set `0` with a separate worker in production |
 | `DARKBOX_RAW_EVIDENCE` | `0` | raw restricted evidence cannot be read |
 | `DARKBOX_MODEL_SYNTHESIS` | `0` | no model call for memory pages |
+| `DARKBOX_FIRECRAWL_ALLOW_PRIVATE` | `0` | delegate private targets to Firecrawl |
+| Burp MCP URL | unset | optional import; no listener is opened by DarkBox |
 | scope `allow_private_network` | `true` only in the lab seed | private targets require explicit permission |
 | scope `retain_raw` | `false` | captures are sanitized only |
 | workspace retention | 30 days | evidence expiry and purge |

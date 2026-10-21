@@ -18,6 +18,8 @@ covers AC-01 through AC-14 against the bundled lab. The last local run passed
 
 ![Inventory](docs/screenshots/inventory.png)
 
+![Optional integrations](docs/screenshots/integrations.png)
+
 - Separates workspaces, companies, assessments, target tenants, test identities
   and browser sessions. An identifier from another workspace is rejected before
   any operation.
@@ -35,12 +37,16 @@ covers AC-01 through AC-14 against the bundled lab. The last local run passed
   visibility comparison and flow reproduction. Test results stay separate from
   findings. A finding cannot be confirmed without accessible evidence and a
   recorded review.
+- Optional adapters for Nmap, Firecrawl and Burp. Nmap scans only the hosts and
+  ports allowed by the scope. Firecrawl provides URL discovery and a managed
+  browser scrape for JavaScript-heavy pages, which is the main web tool for the
+  agent. Burp imports proxy history over MCP without creating new traffic.
 
 ## What it deliberately does not do
 
 - No arbitrary command execution suggested by a model.
-- No Burp, Firecrawl or Nmap dependency. Burp, Nmap and Firecrawl are optional
-  future adapters; the core runs without them.
+- No required external scanner. Burp, Nmap and Firecrawl are optional adapters
+  with capability detection; the core assessment flow runs without them.
 - No SaaS tenancy, graph database, vector search or remote runtime.
 - No autonomous attempt to confirm every form. Candidate actions remain useful
   as a map of gaps.
@@ -107,6 +113,71 @@ destination on `9099`. Run `docker compose -f deploy/docker-compose.yml run --rm
 once to create the workspace and token. Images are built locally; no remote
 runtime is involved.
 
+## Optional integrations
+
+### Firecrawl (managed browser and URL discovery)
+
+Firecrawl is the managed browser path for the agent. `firecrawl_map` discovers
+URLs, and `firecrawl_scrape` renders a JavaScript-heavy page and returns
+Markdown plus links, stored as sanitized evidence against the endpoint. Targets
+still pass the scope policy, and private or loopback addresses are refused
+because Firecrawl's egress cannot be attested.
+
+The hosted MCP server uses OAuth. Configure it once for OpenCode:
+
+```sh
+opencode mcp add firecrawl --url https://mcp.firecrawl.dev/v2/mcp-oauth --global
+opencode mcp auth firecrawl
+```
+
+For the DarkBox runtime, either set an API key:
+
+```sh
+export DARKBOX_FIRECRAWL_API_KEY=fc-...
+```
+
+or point the adapter at the hosted MCP server with an OAuth access token:
+
+```sh
+export DARKBOX_FIRECRAWL_MCP_URL=https://mcp.firecrawl.dev/v2/mcp-oauth
+export DARKBOX_FIRECRAWL_MCP_TOKEN=...
+```
+
+The adapter reports `web.firecrawl` in `/v1/capabilities` and in the UI. A run
+of kind `firecrawl_scrape` is the typed browser operation available to the
+agent. API keys and tokens stay in the environment.
+
+### Nmap
+
+```sh
+brew install nmap   # or the package manager for your platform
+```
+
+The adapter uses a TCP connect scan (`-sT`), never a raw-socket scan. It passes
+only hosts in scope and only ports present in `allowed_ports`; a requested port
+outside the policy is dropped rather than scanned. XML is parsed, stored as
+evidence, and turned into `network.open_port` observations on a host asset.
+Without the binary, the capability is `unavailable` and the rest of the product
+still works.
+
+### Burp over MCP
+
+Start the PortSwigger MCP server from your Burp installation, then point the
+worker at it:
+
+```sh
+export DARKBOX_BURP_MCP_URL=http://127.0.0.1:9876
+# export DARKBOX_BURP_MCP_TOKEN=...
+# export DARKBOX_BURP_MCP_TOOL=burp_get_proxy_history
+```
+
+The adapter performs the MCP initialize and tool discovery handshake, reports
+the actual server name, version and tools, and imports proxy history through
+the tool the edition exposes. Importing does not create new requests. Every
+imported exchange is re-checked against the assessment scope and sanitized
+before storage. Burp remains an external installation; the core never requires
+it.
+
 ## Verify the promise
 
 With the lab and API running:
@@ -131,6 +202,7 @@ crates/policy         scope decisions, exclusions, auxiliary destinations
 crates/storage        PostgreSQL schema, queries, leases, budgets, finding review
 crates/evidence       sanitization, hashes, opaque local object store
 crates/execution      worker, bounded HTTP, built-in crawler, adapter bridge
+crates/integrations   Nmap, Firecrawl and Burp MCP adapters with capability probes
 crates/memory         context packages, deterministic synthesis, Markdown export
 crates/api            Axum routes, auth, SSE, export manifest
 crates/cli            migrate, seed, serve, worker, procedures, purge, verify
@@ -161,6 +233,15 @@ revokes future operations rather than expanding an existing run.
 - The Katana adapter is detected and reported as `degraded`, never silently
   used: Katana cannot guarantee a per-request scope decision, so scoped runs
   use the built-in bounded crawler. See `docs/adapters/katana.md`.
+- Firecrawl fetches pages from its own egress. DarkBox can authorize the URL and
+  refuse private targets, but cannot attest the provider's network path.
+- Burp support is implemented and contract-tested against an MCP mock. It is
+  not tested against every Burp edition; the capability probe reports what the
+  installed edition exposes, and an absent tool disables the import with a
+  reason.
+- Nmap scans are TCP connect scans on the policy's port list. Service detection
+  (`-sV`) is not enabled in this release; product and version fields only appear
+  when Nmap reports them from its default probes.
 - Per-origin concurrency is stored in the policy but not enforced by a
   semaphore in this release. Request budgets are enforced atomically.
 - DNS resolution is checked immediately before a request, but a hostile
@@ -178,6 +259,9 @@ revokes future operations rather than expanding an existing run.
 - `docs/threat-model.md`: assets, attackers, accepted risks.
 - `docs/operations.md`: install, backup, retention, purge, upgrade.
 - `docs/adapters/browser.md`: adapter protocol and cancellation.
+- `docs/adapters/firecrawl.md`: managed browser and URL discovery.
+- `docs/adapters/nmap.md`: network scan scope and parsing.
+- `docs/adapters/burp.md`: MCP capability probe and history import.
 - `docs/decisions/`: architecture decision records.
 - `docs/acceptance/latest.json`: the last recorded acceptance report.
 

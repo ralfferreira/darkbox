@@ -20,9 +20,14 @@ flowchart LR
     WORKER --> HTTP[Bounded HTTP client]
     WORKER --> CRAWL[Built-in crawler]
     WORKER --> ADAPTER[Python adapter: JSON Lines]
+    WORKER --> OPT[Optional adapters]
+    OPT --> NMAP[Nmap: scoped TCP connect]
+    OPT --> FC[Firecrawl: managed browser]
+    OPT --> BURP[Burp MCP: history import]
     HTTP --> TARGET[Authorized target]
     CRAWL --> TARGET
     ADAPTER --> TARGET
+    NMAP --> TARGET
     WORKER --> INGEST[Sanitize + hash + store]
     INGEST --> DB
     INGEST --> OBJ
@@ -30,9 +35,10 @@ flowchart LR
     SSE --> UI
 ```
 
-There is no service per tool. `crates/integrations` is intentionally absent in
-this release: the adapter boundary is the process protocol, and the first
-adapters live in `crates/execution` and `adapters/`.
+There is no service per tool. Optional adapters live in `crates/integrations`
+and are called by the worker; the browser adapter remains a separate process.
+Capability detection decides whether an adapter can run, and the core flow
+never depends on an optional tool.
 
 ## Crates and dependency direction
 

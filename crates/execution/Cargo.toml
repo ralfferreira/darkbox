@@ -10,6 +10,7 @@ chrono.workspace = true
 darkbox-contracts.workspace = true
 darkbox-domain.workspace = true
 darkbox-evidence.workspace = true
+darkbox-integrations.workspace = true
 darkbox-policy.workspace = true
 darkbox-storage.workspace = true
 futures.workspace = true

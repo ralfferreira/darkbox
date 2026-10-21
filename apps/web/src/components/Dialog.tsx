@@ -45,7 +45,7 @@ export function Dialog({
         aria-describedby={description ? descriptionId : undefined}
         tabIndex={-1}
       >
-        <header className="dialog-head">
+        <div className="dialog-head">
           <div>
             <h2 id={titleId}>{title}</h2>
             {description ? (
@@ -62,9 +62,9 @@ export function Dialog({
           >
             <X size={16} strokeWidth={1.5} />
           </button>
-        </header>
+        </div>
         <div className="dialog-body">{children}</div>
-        {footer ? <footer className="dialog-foot">{footer}</footer> : null}
+        {footer ? <div className="dialog-foot">{footer}</div> : null}
       </div>
     </div>,
     document.body,

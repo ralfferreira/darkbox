@@ -300,6 +300,82 @@ async fn build_steps(
                 summary: "record operator reconciliation".into(),
             });
         }
+        RunKind::NetworkScan => {
+            let mut targets = req.targets.clone();
+            if targets.is_empty() {
+                targets = state
+                    .db
+                    .distinct_hosts(auth.workspace_id, req.assessment_id)
+                    .await?;
+            }
+            targets.retain(|target| !target.trim().is_empty());
+            if targets.is_empty() {
+                return Err(ApiError::invalid(
+                    "network scans need at least one host or an inventory with hosts",
+                ));
+            }
+            let ports = req
+                .params
+                .get("ports")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|value| value.as_u64())
+                        .filter_map(|value| u16::try_from(value).ok())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            steps.push(NewStep {
+                kind: StepKind::NetworkScan,
+                operation: json!({ "targets": targets, "ports": ports }),
+                summary: format!("nmap TCP connect scan on {} hosts", targets.len()),
+            });
+        }
+        RunKind::FirecrawlMap => {
+            let target = req
+                .targets
+                .first()
+                .cloned()
+                .or_else(|| req.base_url.clone())
+                .ok_or_else(|| ApiError::invalid("firecrawl map needs a target URL"))?;
+            steps.push(NewStep {
+                kind: StepKind::FirecrawlMap,
+                operation: json!({
+                    "targets": [target],
+                    "limit": req.params.get("limit").and_then(|value| value.as_u64()).unwrap_or(100),
+                    "search": req.params.get("search").and_then(|value| value.as_str()),
+                }),
+                summary: "discover URLs through Firecrawl".into(),
+            });
+        }
+        RunKind::FirecrawlScrape => {
+            if req.targets.is_empty() {
+                return Err(ApiError::invalid("firecrawl scrape needs at least one URL"));
+            }
+            steps.push(NewStep {
+                kind: StepKind::FirecrawlScrape,
+                operation: json!({
+                    "targets": req.targets,
+                    "objective": if req.note.trim().is_empty() {
+                        "Observe the page for an authorized assessment."
+                    } else {
+                        req.note.as_str()
+                    },
+                    "max_urls": req.params.get("max_urls").and_then(|value| value.as_u64()).unwrap_or(5),
+                }),
+                summary: "render and capture pages through the managed browser".into(),
+            });
+        }
+        RunKind::BurpImport => {
+            steps.push(NewStep {
+                kind: StepKind::BurpImport,
+                operation: json!({
+                    "limit": req.params.get("limit").and_then(|value| value.as_u64()).unwrap_or(100),
+                }),
+                summary: "import proxy history from Burp over MCP".into(),
+            });
+        }
     }
     Ok(steps)
 }

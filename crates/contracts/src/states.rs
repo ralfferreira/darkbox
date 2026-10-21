@@ -111,6 +111,10 @@ string_state!(RunKind {
     FlowReproduction => "flow_reproduction",
     Procedure => "procedure",
     Reconciliation => "reconciliation",
+    NetworkScan => "network_scan",
+    FirecrawlMap => "firecrawl_map",
+    FirecrawlScrape => "firecrawl_scrape",
+    BurpImport => "burp_import",
 });
 
 string_state!(StepKind {
@@ -122,6 +126,10 @@ string_state!(StepKind {
     BrowserFlow => "browser_flow",
     ProcedureStep => "procedure_step",
     Reconcile => "reconcile",
+    NetworkScan => "network_scan",
+    FirecrawlMap => "firecrawl_map",
+    FirecrawlScrape => "firecrawl_scrape",
+    BurpImport => "burp_import",
 });
 
 string_state!(EffectStatus {

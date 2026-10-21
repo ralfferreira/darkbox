@@ -292,6 +292,10 @@ pub struct CreateRunRequest {
     pub checks: Vec<String>,
     #[serde(default)]
     pub login_path: Option<String>,
+    #[serde(default)]
+    pub targets: Vec<String>,
+    #[serde(default)]
+    pub params: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -34,7 +34,7 @@ export function Drawer({ open, onClose, title, subtitle, children, footer }: Dra
         aria-labelledby={titleId}
         tabIndex={-1}
       >
-        <header className="drawer-head">
+        <div className="drawer-head">
           <div className="drawer-heading">
             <h2 id={titleId}>{title}</h2>
             {subtitle ? <div className="drawer-sub">{subtitle}</div> : null}
@@ -47,9 +47,9 @@ export function Drawer({ open, onClose, title, subtitle, children, footer }: Dra
           >
             <X size={16} strokeWidth={1.5} />
           </button>
-        </header>
+        </div>
         <div className="drawer-body">{children}</div>
-        {footer ? <footer className="drawer-foot">{footer}</footer> : null}
+        {footer ? <div className="drawer-foot">{footer}</div> : null}
       </div>
     </div>,
     document.body,

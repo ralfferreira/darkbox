@@ -28,6 +28,14 @@
 | `DARKBOX_MODEL_BASE_URL` | `https://api.openai.com/v1` | provider base |
 | `DARKBOX_MODEL` | `gpt-4.1-mini` | model name |
 | `DARKBOX_MODEL_SYNTHESIS` | `0` | use the model for memory synthesis |
+| `DARKBOX_FIRECRAWL_API_KEY` | unset | Firecrawl REST mode |
+| `DARKBOX_FIRECRAWL_MCP_URL` | unset | Firecrawl hosted MCP endpoint |
+| `DARKBOX_FIRECRAWL_MCP_TOKEN` | unset | Firecrawl OAuth access token |
+| `DARKBOX_FIRECRAWL_BASE_URL` | `https://api.firecrawl.dev/v2` | compatible gateway or test server |
+| `DARKBOX_FIRECRAWL_ALLOW_PRIVATE` | `0` | allow delegation to private targets |
+| `DARKBOX_BURP_MCP_URL` | unset | Burp MCP server root (HTTP or SSE) |
+| `DARKBOX_BURP_MCP_TOKEN` | unset | optional bearer token for Burp MCP |
+| `DARKBOX_BURP_MCP_TOOL` | unset | explicit proxy history tool name |
 | `DARKBOX_WEB_DIST` | unset | serve a built UI from this directory |
 
 Secrets for the lab adapter are `LAB_ALICE_PASSWORD` and

@@ -36,6 +36,8 @@ npm run typecheck
 - Memory: versioned pages, search, references and a bounded context package.
 - Findings: review transitions; confirmation requires evidence.
 - Scope: effective policy, version history and a preflight preview.
+- Integrations: Nmap scan, Firecrawl map, managed browser scrape and Burp
+  history import, with capability availability and reasons.
 - Procedures: catalog and eligibility with explicit blockers.
 - Capabilities: adapter availability and the reason for each limitation.
 

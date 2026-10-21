@@ -141,6 +141,12 @@ impl<'a> ContextBuilder<'a> {
         });
 
         sections.push(ContextSectionDto {
+            title: "Available typed operations".into(),
+            body: "Use these through the API; there is no shell.\n- firecrawl_scrape: render an in-scope public URL through the managed browser and store Markdown as evidence. Requires the web.firecrawl capability.\n- firecrawl_map: list candidate URLs without fetching their content. Candidates still need scope and observation.\n- network_scan: TCP connect scan restricted to policy-approved hosts and ports. Requires network.nmap.\n- http.observe: direct bounded request when the page does not require a browser.\n- flow.reproduction: replay a recorded flow with its identity and tenant.".into(),
+            reference_kind: None,
+        });
+
+        sections.push(ContextSectionDto {
             title: "Coverage with explicit denominator".into(),
             body: format!(
                 "Known candidates: {}; observed: {}; excluded: {}; unreachable: {}. Flows reproduced {} of {}. Findings confirmed {}; awaiting review {}. Evidence items {} ({} bytes).",

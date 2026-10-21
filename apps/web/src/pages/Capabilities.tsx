@@ -51,7 +51,7 @@ export function CapabilitiesPage() {
                           <Status value={adapter.state} />
                         </td>
                         <td>{adapter.provider}</td>
-                        <td className="mono">v{adapter.version}</td>
+                        <td className="mono">{adapter.version}</td>
                         <td className="quiet">{adapter.detail || '—'}</td>
                       </tr>
                     ))}

@@ -442,3 +442,67 @@ pub(crate) async fn insert_candidate(
     .await?;
     Ok(id)
 }
+
+impl Db {
+    pub async fn upsert_asset(
+        &self,
+        workspace_id: WorkspaceId,
+        assessment_id: AssessmentId,
+        kind: AssetKind,
+        canonical_id: &str,
+        relation: &str,
+    ) -> Result<AssetId> {
+        let assessment = self.get_assessment(workspace_id, assessment_id).await?;
+        let existing: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM assets WHERE assessment_id=$1 AND kind=$2 AND canonical_id=$3",
+        )
+        .bind(assessment_id.as_uuid())
+        .bind(kind.as_str())
+        .bind(canonical_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        if let Some(id) = existing {
+            return Ok(id.into());
+        }
+        let id = AssetId::new();
+        sqlx::query(
+            "INSERT INTO assets (id, workspace_id, assessment_id, kind, canonical_id, environment, relation_evidence)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (assessment_id, kind, canonical_id) DO NOTHING",
+        )
+        .bind(id.as_uuid())
+        .bind(workspace_id.as_uuid())
+        .bind(assessment_id.as_uuid())
+        .bind(kind.as_str())
+        .bind(canonical_id)
+        .bind(&assessment.environment)
+        .bind(relation)
+        .execute(&self.pool)
+        .await?;
+        let id: Uuid = sqlx::query_scalar(
+            "SELECT id FROM assets WHERE assessment_id=$1 AND kind=$2 AND canonical_id=$3",
+        )
+        .bind(assessment_id.as_uuid())
+        .bind(kind.as_str())
+        .bind(canonical_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(id.into())
+    }
+
+    pub async fn distinct_hosts(
+        &self,
+        workspace_id: WorkspaceId,
+        assessment_id: AssessmentId,
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT host FROM endpoints
+             WHERE workspace_id=$1 AND assessment_id=$2 ORDER BY host",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(assessment_id.as_uuid())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+}

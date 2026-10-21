@@ -1,14 +1,14 @@
 {
-  "generated_at": "2026-10-21T20:47:18.682901Z",
+  "generated_at": "2026-10-21T22:21:32.043687Z",
   "lab_version": "lab-1",
   "criteria": [
     {
       "id": "AC-01",
       "title": "Excluded destinations blocked before access",
       "status": "passed",
-      "detail": "lab oracle excluded_hits=0, forbidden path hits=0; 3 destinations recorded as excluded; run 01a16037-bed2-774d-98ca-db804f916c3f spent 1 requests",
+      "detail": "lab oracle excluded_hits=0, forbidden path hits=0; 3 destinations recorded as excluded; run 01a1608e-19d3-7500-9514-ad3002d090db spent 1 requests",
       "evidence": [
-        "01a16037-bed2-774d-98ca-db804f916c3f",
+        "01a1608e-19d3-7500-9514-ad3002d090db",
         "policy_version=1"
       ]
     },
@@ -29,8 +29,8 @@
       "status": "passed",
       "detail": "alice and bob authenticated in separate adapter contexts; evidence contains no session cookie or password",
       "evidence": [
-        "01a16037-be8e-7244-b861-df67119c3fc9",
-        "01a16037-beab-7553-89b4-be0d0e6d1717"
+        "01a1608e-197e-7195-9e96-7e68a4920002",
+        "01a1608e-19c5-71df-94b7-d38af39171b3"
       ]
     },
     {
@@ -39,15 +39,15 @@
       "status": "passed",
       "detail": "confirmed finding requires evidence (409 without it); hypotheses remain labelled; every confirmed finding lists evidence",
       "evidence": [
-        "01a16037-c4eb-7008-8e7b-66d25f67621d",
-        "01a16037-c949-7631-9f43-7632d2f81dc6"
+        "01a1608e-1c68-73ee-9ef0-2d0ff73d25f3",
+        "01a1608e-1c7c-70b7-8dcd-77a0d7c229a2"
       ]
     },
     {
       "id": "AC-05",
       "title": "Restart preserves evidence and resume context",
       "status": "passed",
-      "detail": "11 evidence records read back through a new connection; context package references 8 records and 776 tokens",
+      "detail": "11 evidence records read back through a new connection; context package references 8 records and 925 tokens",
       "evidence": [
         "db-reconnect evidence=11"
       ]
@@ -56,10 +56,10 @@
       "id": "AC-06",
       "title": "Unknown external effect is not repeated",
       "status": "passed",
-      "detail": "run 01a16037-cc9a-7570-9ab6-21eec7bd93ef moved to waiting_operator with outcome_unknown; automatic resume refused (409); explicit reconciliation accepted",
+      "detail": "run 01a1608e-1cc7-77bb-86fe-ab4703954e24 moved to waiting_operator with outcome_unknown; automatic resume refused (409); explicit reconciliation accepted",
       "evidence": [
-        "01a16037-cc9a-7570-9ab6-21eec7bd93ef",
-        "01a16037-ccb7-71ad-818f-98107e15cc89"
+        "01a1608e-1cc7-77bb-86fe-ab4703954e24",
+        "01a1608e-1cc8-73e5-b2c5-6dcca4ab057c"
       ]
     },
     {
@@ -68,7 +68,7 @@
       "status": "passed",
       "detail": "authenticated page text captured as inert evidence; policy stayed at v1; effect counter stayed at 0",
       "evidence": [
-        "01a16037-cf4b-7273-ba3d-3b073f988dee",
+        "01a1608e-1d06-723e-a042-ce82470139fa",
         "policy_version=1"
       ]
     },
@@ -78,7 +78,7 @@
       "status": "passed",
       "detail": "10 concurrent reservations against a budget of 5: exactly 5 granted, spent=5",
       "evidence": [
-        "01a16037-d328-71f0-ae5b-56df27e0ff3d"
+        "01a1608e-1f2d-7683-aa2e-21236e09cc5f"
       ]
     },
     {
@@ -87,16 +87,16 @@
       "status": "passed",
       "detail": "cancellation before dispatch left the target untouched; run ended cancelled",
       "evidence": [
-        "01a16037-d527-712d-89a6-da63be04565f"
+        "01a1608e-1f8f-72e3-ba24-87546213c00c"
       ]
     },
     {
       "id": "AC-10",
       "title": "Sanitized export omits secrets",
       "status": "passed",
-      "detail": "export 37107 bytes; manifest \"596f0768a83894caedefe74773bcbab10806bc5db18aec45d30aae765afdc3b0\"; seeded secret, passwords and cookies absent",
+      "detail": "export 37107 bytes; manifest \"0f174a20597315a650547aa5711719dfbbc99289af4ccedd3bcf3ba214b656d6\"; seeded secret, passwords and cookies absent",
       "evidence": [
-        "01a16037-dfca-7269-befc-a81c511ba8c2"
+        "01a1608e-2796-71f1-885e-4c67a69f5f14"
       ]
     },
     {
@@ -105,26 +105,26 @@
       "status": "passed",
       "detail": "3/3 cross-workspace reads rejected with 403/404",
       "evidence": [
-        "/v1/assessments/01a16037-b68b-74b3-936e-b666579fca9f",
-        "/v1/assessments/01a16037-b68b-74b3-936e-b666579fca9f/inventory",
-        "/v1/assessments/01a16037-b68b-74b3-936e-b666579fca9f/evidence"
+        "/v1/assessments/01a1608e-170a-74e3-a1b0-29821e122f27",
+        "/v1/assessments/01a1608e-170a-74e3-a1b0-29821e122f27/inventory",
+        "/v1/assessments/01a1608e-170a-74e3-a1b0-29821e122f27/evidence"
       ]
     },
     {
       "id": "AC-12",
       "title": "New session resumes without repeating work",
       "status": "passed",
-      "detail": "flow 01a16037-e0ec-776a-8ae8-5ce86ed5f2c4 reproduced with 1 evidence items; a fresh context package for alice includes the flow and a persisted checkpoint",
+      "detail": "flow 01a1608e-27b1-7266-86e6-0ea31643b65e reproduced with 1 evidence items; a fresh context package for alice includes the flow and a persisted checkpoint",
       "evidence": [
-        "01a16037-e0ec-776a-8ae8-5ce86ed5f2c4",
-        "01a16037-e1aa-73ef-967c-a51da85e50f2"
+        "01a1608e-27b1-7266-86e6-0ea31643b65e",
+        "01a1608e-27bd-70ce-aed2-0ad7d34008f2"
       ]
     },
     {
       "id": "AC-13",
       "title": "Core works without optional integrations",
       "status": "passed",
-      "detail": "4 core adapters available; 3 procedure versions loaded; no Burp, Firecrawl or remote runtime used",
+      "detail": "6 core adapters available; 3 procedure versions loaded; no Burp, Firecrawl or remote runtime used",
       "evidence": [
         "http.capture",
         "discovery.import",
@@ -137,7 +137,7 @@
       "status": "passed",
       "detail": "retention expiry selected the object, removed the stored content and deleted metadata",
       "evidence": [
-        "01a16037-bb5c-76e2-97ba-13cb5573458f"
+        "01a1608e-17a1-77c9-9fcc-15a6d8949b6f"
       ]
     }
   ],

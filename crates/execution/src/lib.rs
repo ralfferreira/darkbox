@@ -1,5 +1,6 @@
 //! Run execution: leases, bounded external operations, evidence ingestion.
 
+mod adapters;
 pub mod bridge;
 mod browser;
 mod http;
@@ -267,6 +268,10 @@ impl Executor {
             StepKind::BrowserSession => self.browser_session(run, step, cancelled).await,
             StepKind::BrowserFlow => self.browser_flow(run, step, cancelled).await,
             StepKind::ProcedureStep => self.procedure_step(run, step, cancelled).await,
+            StepKind::NetworkScan => self.network_scan(run, step).await,
+            StepKind::FirecrawlMap => self.firecrawl_map(run, step).await,
+            StepKind::FirecrawlScrape => self.firecrawl_scrape(run, step).await,
+            StepKind::BurpImport => self.burp_import(run, step).await,
             StepKind::Reconcile => Ok(Outcome::succeeded(
                 "reconciliation recorded",
                 json!({ "note": step.operation.get("note").cloned().unwrap_or_default() }),
@@ -558,7 +563,7 @@ pub fn capabilities(config: &ExecutorConfig) -> Vec<Capability> {
     let adapter_script = config.repo_root.join("adapters/browser-python/adapter.py");
     let adapter_ready = python.is_some() && adapter_script.is_file();
     let camoufox = std::env::var("DARKBOX_CAMOUFOX_AVAILABLE").is_ok();
-    vec![
+    let mut capabilities = vec![
         Capability {
             id: "http.capture".into(),
             provider: "builtin".into(),
@@ -639,7 +644,9 @@ pub fn capabilities(config: &ExecutorConfig) -> Vec<Capability> {
                 "no model provider configured; memory synthesis stays deterministic".into()
             },
         },
-    ]
+    ];
+    capabilities.extend(darkbox_integrations::capabilities());
+    capabilities
 }
 
 fn which(binary: &str) -> Option<PathBuf> {

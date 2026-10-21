@@ -1011,6 +1011,10 @@ a.cell-primary:hover {
   line-height: 1.5;
 }
 
+.notice > .status {
+  margin-right: 8px;
+}
+
 .notice[data-tone='amber'] {
   border-left-color: var(--amber);
   background: rgba(230, 181, 102, 0.045);

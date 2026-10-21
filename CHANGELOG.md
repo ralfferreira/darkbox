@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Nmap adapter with scoped TCP connect scans, XML parsing and `network.*`
+  observations.
+- Firecrawl adapter over REST or the hosted MCP server: URL discovery and a
+  managed browser scrape for the agent, stored as sanitized evidence.
+- Burp MCP adapter: capability probe, tool discovery, proxy history import and
+  scope re-check.
+- Integrations dialog in the operator UI and live capability reporting.
+- Firecrawl MCP OAuth configured for the local OpenCode session.
+
 ## 0.3.0 — 2026-10-21
 
 First complete core release.

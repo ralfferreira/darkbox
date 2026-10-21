@@ -15,7 +15,7 @@ RUN cargo build --release -p darkbox-cli -p darkbox-lab
 
 FROM debian:bookworm-slim
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates python3 curl \
+    && apt-get install -y --no-install-recommends ca-certificates python3 curl nmap \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /src/target/release/darkbox /usr/local/bin/darkbox

@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Download, Play, Plus, RotateCcw } from 'lucide-react';
+import { Download, Play, Plug, Plus, RotateCcw } from 'lucide-react';
 import { useAssessment, useFlows, useObservations } from '../api/queries';
 import { isTerminalRun, type AssessmentDetail } from '../api/types';
 import { ExportDialog } from '../components/ExportDialog';
 import { FlowRunDialog, ProcedureRunDialog } from '../components/RunStartDialogs';
 import { ImportUrlsDialog } from '../components/ImportUrlsDialog';
+import { IntegrationRunDialog } from '../components/IntegrationRunDialog';
 import { Status } from '../components/Status';
 import {
   BlockSkeleton,
@@ -99,6 +100,7 @@ export function AssessmentOverviewPage() {
   const [reproduceOpen, setReproduceOpen] = useState(false);
   const [procedureOpen, setProcedureOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
 
   if (assessment.isError) {
     return (
@@ -155,6 +157,16 @@ export function AssessmentOverviewPage() {
             >
               <Play size={14} strokeWidth={1.5} aria-hidden="true" />
               Run procedure
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setToolsOpen(true)}
+              disabled={!canWrite}
+              title={canWrite ? undefined : 'Your role cannot start runs.'}
+            >
+              <Plug size={14} strokeWidth={1.5} aria-hidden="true" />
+              Integrations
             </button>
             <button type="button" className="btn" onClick={() => setExportOpen(true)}>
               <Download size={14} strokeWidth={1.5} aria-hidden="true" />
@@ -459,6 +471,11 @@ export function AssessmentOverviewPage() {
           <ProcedureRunDialog
             open={procedureOpen}
             onClose={() => setProcedureOpen(false)}
+            assessmentId={id}
+          />
+          <IntegrationRunDialog
+            open={toolsOpen}
+            onClose={() => setToolsOpen(false)}
             assessmentId={id}
           />
           <ExportDialog

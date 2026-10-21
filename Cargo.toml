@@ -8,6 +8,7 @@ members = [
   "crates/evidence",
   "crates/execution",
   "crates/memory",
+  "crates/integrations",
   "crates/api",
   "crates/cli",
   "lab/application",
@@ -28,6 +29,7 @@ darkbox-storage = { path = "crates/storage" }
 darkbox-evidence = { path = "crates/evidence" }
 darkbox-execution = { path = "crates/execution" }
 darkbox-memory = { path = "crates/memory" }
+darkbox-integrations = { path = "crates/integrations" }
 darkbox-api = { path = "crates/api" }
 anyhow = "1"
 async-trait = "0.1"

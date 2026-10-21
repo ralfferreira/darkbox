@@ -308,6 +308,103 @@ pub fn is_private(ip: &IpAddr) -> bool {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct NetworkContext<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    pub resolved_ips: Vec<IpAddr>,
+    pub now: DateTime<Utc>,
+}
+
+impl<'a> NetworkContext<'a> {
+    pub fn new(host: &'a str, port: u16) -> Self {
+        Self {
+            host,
+            port,
+            resolved_ips: Vec::new(),
+            now: Utc::now(),
+        }
+    }
+}
+
+impl<'a> PolicyEngine<'a> {
+    /// Scope decision for a network probe that is not an HTTP request.
+    /// The same host, port and private-address rules apply.
+    pub fn evaluate_network(&self, ctx: &NetworkContext<'_>) -> ScopeDecision {
+        let host = normalize_host(ctx.host);
+        let target = format!("tcp://{host}:{}", ctx.port);
+        let decision = |allowed, code, rule: String| ScopeDecision {
+            allowed,
+            code,
+            rule,
+            policy_version: self.version,
+            target: target.clone(),
+            action_class: ActionClass::Query,
+        };
+        if !self.policy.allowed_ports.contains(&ctx.port) {
+            return decision(
+                false,
+                Some(DenyCode::PortNotAllowed),
+                format!("port:{}", ctx.port),
+            );
+        }
+        if let Some(pattern) = self
+            .policy
+            .exclude_hosts
+            .iter()
+            .find(|pattern| host_rule_matches(pattern, &host))
+        {
+            return decision(
+                false,
+                Some(DenyCode::Excluded),
+                format!("exclude_host:{pattern}"),
+            );
+        }
+        if let Some(window) = &self.policy.window
+            && !in_window(window, ctx.now)
+        {
+            return decision(false, Some(DenyCode::OutsideWindow), "window".into());
+        }
+        if !self
+            .policy
+            .include_hosts
+            .iter()
+            .any(|pattern| host_rule_matches(pattern, &host))
+            && !self
+                .policy
+                .test_targets
+                .iter()
+                .any(|destination| auxiliary_matches(destination, "tcp", &host, ctx.port))
+        {
+            return decision(
+                false,
+                Some(DenyCode::HostNotIncluded),
+                format!("include_host:{host}"),
+            );
+        }
+        for ip in &ctx.resolved_ips {
+            if is_private(ip) && !self.policy.allow_private_network {
+                return decision(
+                    false,
+                    Some(DenyCode::PrivateNetworkDenied),
+                    format!("resolved_private:{ip}"),
+                );
+            }
+        }
+        if let Ok(ip) = host.parse::<IpAddr>()
+            && is_private(&ip)
+            && !self.policy.allow_private_network
+        {
+            return decision(
+                false,
+                Some(DenyCode::PrivateNetworkDenied),
+                format!("private_literal:{ip}"),
+            );
+        }
+        decision(true, None, format!("include_host:{host}"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -431,5 +528,28 @@ mod tests {
         assert!(decision.allowed);
         assert_eq!(decision.policy_version, 7);
         assert_eq!(decision.rule, "include_host:127.0.0.1");
+    }
+
+    #[test]
+    fn network_scan_obeys_ports_and_exclusions() {
+        let mut policy = demo();
+        policy.allowed_ports = vec![8080];
+        let engine = PolicyEngine::new(&policy, 4);
+        let allowed = engine.evaluate_network(&NetworkContext::new("127.0.0.1", 8080));
+        assert!(allowed.allowed);
+        assert_eq!(allowed.policy_version, 4);
+        let denied = engine.evaluate_network(&NetworkContext::new("127.0.0.1", 9099));
+        assert_eq!(denied.code, Some(DenyCode::PortNotAllowed));
+        let excluded = engine.evaluate_network(&NetworkContext::new("excluded.lab.test", 8080));
+        assert_eq!(excluded.code, Some(DenyCode::Excluded));
+    }
+
+    #[test]
+    fn network_scan_needs_private_permission() {
+        let mut policy = demo();
+        policy.allow_private_network = false;
+        let engine = PolicyEngine::new(&policy, 1);
+        let decision = engine.evaluate_network(&NetworkContext::new("127.0.0.1", 8080));
+        assert_eq!(decision.code, Some(DenyCode::PrivateNetworkDenied));
     }
 }

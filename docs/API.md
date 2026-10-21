@@ -53,6 +53,28 @@ Identifiers from another workspace are rejected before any operation.
 | GET | `/findings/{id}` | | `FindingDto` |
 | POST | `/findings/{id}/review` | `ReviewFindingRequest` | `FindingDto` |
 
+### Integration runs
+
+`POST /v1/runs` accepts additional optional fields for the adapters:
+
+```json
+{
+  "assessment_id": "...",
+  "kind": "network_scan",
+  "idempotency_key": "...",
+  "targets": ["127.0.0.1"],
+  "params": { "ports": [8080] },
+  "note": "optional"
+}
+```
+
+Run kinds: `network_scan`, `firecrawl_map`, `firecrawl_scrape`, `burp_import`.
+`network_scan` defaults targets to the distinct hosts already in the inventory
+and ignores ports outside `allowed_ports`. `firecrawl_map` takes the first
+target as the site URL and `params.limit` / `params.search`. `firecrawl_scrape`
+takes up to five targets and uses `note` as the scrape objective.
+`burp_import` needs no target and uses `params.limit`.
+
 ## Event envelope
 
 Every event includes `event_id`, `schema_version`, `workspace_id`,
