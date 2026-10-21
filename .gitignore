@@ -1,0 +1,13 @@
+/target
+/artifacts
+/data
+*.log
+.env
+.env.local
+node_modules
+dist
+.DS_Store
+*.sqlite
+__pycache__
+.venv
+/adapters/browser-python/.camoufox

@@ -1,0 +1,147 @@
+{
+  "generated_at": "2026-10-21T20:47:18.682901Z",
+  "lab_version": "lab-1",
+  "criteria": [
+    {
+      "id": "AC-01",
+      "title": "Excluded destinations blocked before access",
+      "status": "passed",
+      "detail": "lab oracle excluded_hits=0, forbidden path hits=0; 3 destinations recorded as excluded; run 01a16037-bed2-774d-98ca-db804f916c3f spent 1 requests",
+      "evidence": [
+        "01a16037-bed2-774d-98ca-db804f916c3f",
+        "policy_version=1"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "title": "Methods and semantic paths stay distinct",
+      "status": "passed",
+      "detail": "GET /about, POST /about and GET /about/ are distinct records: [\"GET /about/\", \"POST /about\", \"GET /about\"]",
+      "evidence": [
+        "GET /about",
+        "POST /about",
+        "GET /about/"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "title": "Identity contexts are isolated",
+      "status": "passed",
+      "detail": "alice and bob authenticated in separate adapter contexts; evidence contains no session cookie or password",
+      "evidence": [
+        "01a16037-be8e-7244-b861-df67119c3fc9",
+        "01a16037-beab-7553-89b4-be0d0e6d1717"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "title": "Claims point at evidence or stay hypotheses",
+      "status": "passed",
+      "detail": "confirmed finding requires evidence (409 without it); hypotheses remain labelled; every confirmed finding lists evidence",
+      "evidence": [
+        "01a16037-c4eb-7008-8e7b-66d25f67621d",
+        "01a16037-c949-7631-9f43-7632d2f81dc6"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "title": "Restart preserves evidence and resume context",
+      "status": "passed",
+      "detail": "11 evidence records read back through a new connection; context package references 8 records and 776 tokens",
+      "evidence": [
+        "db-reconnect evidence=11"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "title": "Unknown external effect is not repeated",
+      "status": "passed",
+      "detail": "run 01a16037-cc9a-7570-9ab6-21eec7bd93ef moved to waiting_operator with outcome_unknown; automatic resume refused (409); explicit reconciliation accepted",
+      "evidence": [
+        "01a16037-cc9a-7570-9ab6-21eec7bd93ef",
+        "01a16037-ccb7-71ad-818f-98107e15cc89"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "title": "External content cannot change policy",
+      "status": "passed",
+      "detail": "authenticated page text captured as inert evidence; policy stayed at v1; effect counter stayed at 0",
+      "evidence": [
+        "01a16037-cf4b-7273-ba3d-3b073f988dee",
+        "policy_version=1"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "title": "Aggregate budget holds with concurrency",
+      "status": "passed",
+      "detail": "10 concurrent reservations against a budget of 5: exactly 5 granted, spent=5",
+      "evidence": [
+        "01a16037-d328-71f0-ae5b-56df27e0ff3d"
+      ]
+    },
+    {
+      "id": "AC-09",
+      "title": "Cancellation prevents new steps",
+      "status": "passed",
+      "detail": "cancellation before dispatch left the target untouched; run ended cancelled",
+      "evidence": [
+        "01a16037-d527-712d-89a6-da63be04565f"
+      ]
+    },
+    {
+      "id": "AC-10",
+      "title": "Sanitized export omits secrets",
+      "status": "passed",
+      "detail": "export 37107 bytes; manifest \"596f0768a83894caedefe74773bcbab10806bc5db18aec45d30aae765afdc3b0\"; seeded secret, passwords and cookies absent",
+      "evidence": [
+        "01a16037-dfca-7269-befc-a81c511ba8c2"
+      ]
+    },
+    {
+      "id": "AC-11",
+      "title": "Workspace isolation on every read",
+      "status": "passed",
+      "detail": "3/3 cross-workspace reads rejected with 403/404",
+      "evidence": [
+        "/v1/assessments/01a16037-b68b-74b3-936e-b666579fca9f",
+        "/v1/assessments/01a16037-b68b-74b3-936e-b666579fca9f/inventory",
+        "/v1/assessments/01a16037-b68b-74b3-936e-b666579fca9f/evidence"
+      ]
+    },
+    {
+      "id": "AC-12",
+      "title": "New session resumes without repeating work",
+      "status": "passed",
+      "detail": "flow 01a16037-e0ec-776a-8ae8-5ce86ed5f2c4 reproduced with 1 evidence items; a fresh context package for alice includes the flow and a persisted checkpoint",
+      "evidence": [
+        "01a16037-e0ec-776a-8ae8-5ce86ed5f2c4",
+        "01a16037-e1aa-73ef-967c-a51da85e50f2"
+      ]
+    },
+    {
+      "id": "AC-13",
+      "title": "Core works without optional integrations",
+      "status": "passed",
+      "detail": "4 core adapters available; 3 procedure versions loaded; no Burp, Firecrawl or remote runtime used",
+      "evidence": [
+        "http.capture",
+        "discovery.import",
+        "browser.session"
+      ]
+    },
+    {
+      "id": "AC-14",
+      "title": "Retention purge removes content and metadata",
+      "status": "passed",
+      "detail": "retention expiry selected the object, removed the stored content and deleted metadata",
+      "evidence": [
+        "01a16037-bb5c-76e2-97ba-13cb5573458f"
+      ]
+    }
+  ],
+  "passed": 14,
+  "failed": 0,
+  "skipped": 0
+}

@@ -1,0 +1,2 @@
+# Mock mode needs no third-party packages. The optional browser path is pinned
+# when enabled; see docs/adapters/browser.md.

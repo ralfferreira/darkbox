@@ -1,0 +1,10 @@
+target
+data
+artifacts
+node_modules
+apps/web/node_modules
+apps/web/dist
+dist
+.git
+*.log
+.DS_Store

@@ -1,0 +1,84 @@
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: darkbox
+      POSTGRES_PASSWORD: darkbox
+      POSTGRES_DB: darkbox
+    ports:
+      - "5433:5432"
+    volumes:
+      - darkbox-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U darkbox -d darkbox"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/images/Dockerfile
+    image: darkbox/core:0.3.0
+    command: ["darkbox", "serve", "--bind", "0.0.0.0:8787"]
+    environment:
+      DATABASE_URL: postgres://darkbox:darkbox@postgres:5432/darkbox
+      DARKBOX_BLOB_ROOT: /data/objects
+      DARKBOX_REPO_ROOT: /app
+      DARKBOX_LAB_URL: http://lab:8080
+      DARKBOX_ADAPTER_PYTHON: python3
+      DARKBOX_INLINE_WORKER: "1"
+      DARKBOX_WEB_DIST: /app/web
+      LAB_ALICE_PASSWORD: alice-lab-pass
+      LAB_BOB_PASSWORD: bob-lab-pass
+    ports:
+      - "8787:8787"
+    volumes:
+      - darkbox-objects:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      lab:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8787/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  lab:
+    build:
+      context: ..
+      dockerfile: deploy/images/Dockerfile
+    image: darkbox/core:0.3.0
+    command: ["darkbox-lab"]
+    environment:
+      LAB_PORT: "8080"
+      EXCLUDED_PORT: "9099"
+    ports:
+      - "8080:8080"
+      - "9099:9099"
+
+  worker:
+    image: darkbox/core:0.3.0
+    build:
+      context: ..
+      dockerfile: deploy/images/Dockerfile
+    command: ["darkbox", "worker"]
+    environment:
+      DATABASE_URL: postgres://darkbox:darkbox@postgres:5432/darkbox
+      DARKBOX_BLOB_ROOT: /data/objects
+      DARKBOX_REPO_ROOT: /app
+      DARKBOX_ADAPTER_PYTHON: python3
+      LAB_ALICE_PASSWORD: alice-lab-pass
+      LAB_BOB_PASSWORD: bob-lab-pass
+    volumes:
+      - darkbox-objects:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["worker"]
+
+volumes:
+  darkbox-pg:
+  darkbox-objects:

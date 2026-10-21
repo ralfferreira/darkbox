@@ -1,0 +1,35 @@
+[package]
+name = "darkbox-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "darkbox"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+chrono.workspace = true
+clap.workspace = true
+darkbox-api.workspace = true
+darkbox-contracts.workspace = true
+darkbox-domain.workspace = true
+darkbox-evidence.workspace = true
+darkbox-execution.workspace = true
+darkbox-memory.workspace = true
+darkbox-policy.workspace = true
+darkbox-storage.workspace = true
+futures.workspace = true
+hex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+uuid.workspace = true

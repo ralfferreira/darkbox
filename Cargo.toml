@@ -1,0 +1,53 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/contracts",
+  "crates/domain",
+  "crates/policy",
+  "crates/storage",
+  "crates/evidence",
+  "crates/execution",
+  "crates/memory",
+  "crates/api",
+  "crates/cli",
+  "lab/application",
+]
+
+[workspace.package]
+version = "0.3.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/ralfferreira/darkbox"
+rust-version = "1.90"
+
+[workspace.dependencies]
+darkbox-contracts = { path = "crates/contracts" }
+darkbox-domain = { path = "crates/domain" }
+darkbox-policy = { path = "crates/policy" }
+darkbox-storage = { path = "crates/storage" }
+darkbox-evidence = { path = "crates/evidence" }
+darkbox-execution = { path = "crates/execution" }
+darkbox-memory = { path = "crates/memory" }
+darkbox-api = { path = "crates/api" }
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
+hex = "0.4"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit", "fs"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+url = "2"
+uuid = { version = "1", features = ["v4", "v7", "serde"] }

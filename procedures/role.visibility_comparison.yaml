@@ -1,0 +1,30 @@
+id: role.visibility_comparison
+version: 1.0.0
+name: Role visibility comparison
+purpose: Compare which pages and responses are visible to two test identities.
+target_types:
+  - assessment
+effect_class: session
+required_capabilities:
+  - browser.session
+preconditions:
+  - two_test_identities
+  - identities_in_effective_scope
+inputs:
+  - identity_ids
+  - checks
+limits:
+  max_requests: 60
+  max_attempts: 1
+  timeout_seconds: 120
+steps:
+  - id: compare_visibility
+    operation: browser.visibility
+    retry_policy: no_retry
+required_evidence:
+  - per_identity_status
+  - page_titles
+result_schema: role.visibility_matrix.v1
+evaluator: role.visibility_comparison.v1
+on_missing_evidence: inconclusive
+cleanup: logout

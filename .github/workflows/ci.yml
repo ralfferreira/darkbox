@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: darkbox
+          POSTGRES_PASSWORD: darkbox
+          POSTGRES_DB: darkbox
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U darkbox -d darkbox"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://darkbox:darkbox@127.0.0.1:5433/darkbox
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  acceptance:
+    runs-on: ubuntu-latest
+    needs: core
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: darkbox
+          POSTGRES_PASSWORD: darkbox
+          POSTGRES_DB: darkbox
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U darkbox -d darkbox"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://darkbox:darkbox@127.0.0.1:5433/darkbox
+      DARKBOX_BLOB_ROOT: ${{ github.workspace }}/data/objects
+      DARKBOX_REPO_ROOT: ${{ github.workspace }}
+      DARKBOX_LAB_URL: http://127.0.0.1:8080
+      DARKBOX_INLINE_WORKER: "1"
+      DARKBOX_BROWSER_MODE: mock
+      LAB_ALICE_PASSWORD: alice-lab-pass
+      LAB_BOB_PASSWORD: bob-lab-pass
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace
+      - run: ./target/debug/darkbox migrate && ./target/debug/darkbox seed
+      - run: |
+          LAB_PORT=8080 EXCLUDED_PORT=9099 ./target/debug/darkbox-lab > lab.log 2>&1 &
+          ./target/debug/darkbox serve --bind 127.0.0.1:8787 > api.log 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8787/health && break; sleep 1; done
+      - run: ./target/debug/darkbox verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: acceptance-report
+          path: |
+            artifacts/acceptance/report.json
+            api.log
+            lab.log
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npx tsc --noEmit

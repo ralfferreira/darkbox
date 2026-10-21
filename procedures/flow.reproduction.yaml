@@ -1,0 +1,30 @@
+id: flow.reproduction
+version: 1.0.0
+name: Flow reproduction
+purpose: Re-run a recorded flow with its identity and confirm each expected result.
+target_types:
+  - flow
+effect_class: session
+required_capabilities:
+  - browser.session
+preconditions:
+  - flow_has_steps
+  - valid_identity_if_required
+inputs:
+  - flow_id
+  - identity_id
+limits:
+  max_requests: 40
+  max_attempts: 1
+  timeout_seconds: 120
+steps:
+  - id: replay_flow
+    operation: browser.flow
+    retry_policy: no_retry
+required_evidence:
+  - per_step_status
+  - final_page_snapshot
+result_schema: flow.reproduction.v1
+evaluator: flow.reproduction.v1
+on_missing_evidence: blocked
+cleanup: logout

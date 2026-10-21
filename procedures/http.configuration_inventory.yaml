@@ -1,0 +1,28 @@
+id: http.configuration_inventory
+version: 1.0.0
+name: HTTP configuration inventory
+purpose: Capture response headers and configuration context for one endpoint.
+target_types:
+  - endpoint
+effect_class: query
+required_capabilities:
+  - http.capture
+preconditions:
+  - target_in_effective_scope
+inputs:
+  - endpoint_id
+limits:
+  max_requests: 3
+  max_attempts: 1
+  timeout_seconds: 20
+steps:
+  - id: capture_configuration
+    operation: http.observe
+    retry_policy: reconcile_before_retry
+required_evidence:
+  - request_metadata
+  - response_headers
+result_schema: http.configuration_observation.v1
+evaluator: http.configuration_inventory.v1
+on_missing_evidence: inconclusive
+cleanup: none
