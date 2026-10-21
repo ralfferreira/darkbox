@@ -36,7 +36,13 @@ export function formatRelative(iso: string | null | undefined, now = Date.now())
   const time = new Date(iso).getTime();
   if (Number.isNaN(time)) return '—';
   const diff = Math.round((now - time) / 1000);
-  if (diff < 0) return 'just now';
+  if (diff < -45) {
+    const ahead = -diff;
+    if (ahead < 3600) return `in ${Math.max(1, Math.round(ahead / 60))}m`;
+    if (ahead < 86_400) return `in ${Math.round(ahead / 3600)}h`;
+    if (ahead < 7 * 86_400) return `in ${Math.round(ahead / 86_400)}d`;
+    return `on ${shortDateFormatter.format(new Date(time))}`;
+  }
   if (diff < 45) return 'just now';
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86_400) return `${Math.floor(diff / 3600)}h ago`;

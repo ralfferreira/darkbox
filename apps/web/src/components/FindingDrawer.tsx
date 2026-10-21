@@ -227,10 +227,11 @@ export function FindingDrawer({
                 required
               />
             </Field>
-            {confirmWithoutEvidence ? (
-              <p className="notice" data-tone="amber">
-                Confirmation requires evidence. This finding has no evidence attached; attach
-                evidence before confirming.
+            {nextState === 'confirmed' ? (
+              <p className="notice" data-tone={confirmWithoutEvidence ? 'amber' : undefined}>
+                {confirmWithoutEvidence
+                  ? 'Confirmation requires evidence. This finding has no evidence attached; attach evidence before confirming.'
+                  : 'Confirmation requires evidence. Verify the attached evidence supports the claim.'}
               </p>
             ) : null}
             {mutation.isError ? (

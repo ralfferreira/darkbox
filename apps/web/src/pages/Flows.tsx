@@ -88,7 +88,11 @@ export function FlowsPage() {
                       const steps = [...flow.steps].sort((a, b) => a.ordinal - b.ordinal);
                       const preview = truncate(steps.map((step) => step.intent).join(' → '), 110);
                       return (
-                        <tr key={flow.id} className="row-link">
+                        <tr
+                          key={flow.id}
+                          className="row-link"
+                          onClick={() => setSelectedFlow(flow)}
+                        >
                           <td>
                             <button
                               type="button"

@@ -326,7 +326,7 @@ export function AppShell() {  const { pathname } = useLocation();
               type="button"
               className="command-trigger"
               onClick={() => setPaletteOpen(true)}
-              aria-label={`Open command palette (${commandKeyLabel})`}
+              aria-label={`Command ${commandKeyLabel}`}
             >
               <Search size={14} strokeWidth={1.5} aria-hidden="true" />
               <span className="command-trigger-label">Command</span>

@@ -108,3 +108,30 @@ export function scopePolicyFrom(
     action_classes: [...input.action_classes],
   };
 }
+
+/// Derives a usable initial scope from the operator's initial targets. Used
+/// only when the operator left the include list empty.
+export function policyFromTargets(policy: ScopePolicy, targets: readonly string[]): ScopePolicy {
+  const urls: URL[] = [];
+  for (const target of targets) {
+    try {
+      urls.push(new URL(target));
+    } catch {
+      // The API reports the invalid target; the preview stays conservative.
+    }
+  }
+  if (urls.length === 0) return policy;
+  const hosts = [...new Set(urls.map((url) => url.hostname))];
+  const schemes = [...new Set(urls.map((url) => url.protocol.replace(':', '')))];
+  const ports = [
+    ...new Set(
+      urls.map((url) => Number(url.port || (url.protocol === 'https:' ? 443 : 80))),
+    ),
+  ];
+  return {
+    ...policy,
+    include_hosts: hosts,
+    allowed_schemes: schemes,
+    allowed_ports: ports,
+  };
+}

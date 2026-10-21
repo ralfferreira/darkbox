@@ -525,6 +525,7 @@ export function useReviewFinding(
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['findings', assessmentId] });
       void queryClient.invalidateQueries({ queryKey: keys.assessment(assessmentId) });
+      void queryClient.invalidateQueries({ queryKey: keys.assessmentsAll });
     },
   });
 }

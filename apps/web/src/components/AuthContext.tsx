@@ -55,10 +55,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const handler = () => {
       setToken(null);
       setRejection('The API rejected this token. Sign in with a valid bearer token.');
+      queryClient.clear();
     };
     window.addEventListener(UNAUTHORIZED_EVENT, handler);
     return () => window.removeEventListener(UNAUTHORIZED_EVENT, handler);
-  }, []);
+  }, [queryClient]);
 
   const value = useMemo(
     () => ({ token, rejection, signIn, signOut, clearRejection }),

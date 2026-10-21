@@ -3,7 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { useCompanies, useCreateAssessment } from '../api/queries';
 import { errorMessage } from '../api/client';
 import type { ScopePolicy } from '../api/types';
-import { defaultPolicy, policyValidationError, splitLines } from '../lib/scope';
+import {
+  defaultPolicy,
+  policyFromTargets,
+  policyValidationError,
+  splitLines,
+} from '../lib/scope';
 import { Dialog } from './Dialog';
 import { Field, SelectInput, Textarea, TextInput } from './Form';
 import { ScopeForm } from './ScopeForm';
@@ -49,6 +54,12 @@ export function CreateAssessmentDialog({
     // Reset only when the dialog opens.
   }, [open, companyId]);
 
+  useEffect(() => {
+    if (!open || companyId || selectedCompany) return;
+    const first = companies.data?.[0];
+    if (first) setSelectedCompany(first.id);
+  }, [open, companyId, selectedCompany, companies.data]);
+
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const resolvedCompany = companyId ?? selectedCompany;
@@ -60,7 +71,16 @@ export function CreateAssessmentDialog({
       setValidation('Name, environment and objective are required.');
       return;
     }
-    const policyError = policyValidationError(policy);
+    const targetsList = splitLines(targets);
+    const effectivePolicy =
+      policy.include_hosts.length === 0
+        ? policyFromTargets(policy, targetsList)
+        : policy;
+    if (effectivePolicy.include_hosts.length === 0) {
+      setValidation('Add at least one initial target or include host.');
+      return;
+    }
+    const policyError = policyValidationError(effectivePolicy);
     if (policyError) {
       setValidation(policyError);
       return;
@@ -72,8 +92,8 @@ export function CreateAssessmentDialog({
         name: name.trim(),
         environment: environment.trim(),
         objective: objective.trim(),
-        initial_targets: splitLines(targets),
-        policy,
+        initial_targets: targetsList,
+        policy: effectivePolicy,
       },
       {
         onSuccess: (assessment) => {
@@ -109,6 +129,11 @@ export function CreateAssessmentDialog({
       }
     >
       <form id={formId} onSubmit={submit} className="form-stack">
+        {validation || mutation.isError ? (
+          <p className="form-error" role="alert">
+            {validation ?? errorMessage(mutation.error)}
+          </p>
+        ) : null}
         <div className="form-section">
           <h3 className="form-section-title">Assessment</h3>
           <div className="form-grid two">
@@ -184,11 +209,6 @@ export function CreateAssessmentDialog({
           />
         </div>
 
-        {validation || mutation.isError ? (
-          <p className="form-error" role="alert">
-            {validation ?? errorMessage(mutation.error)}
-          </p>
-        ) : null}
       </form>
     </Dialog>
   );
