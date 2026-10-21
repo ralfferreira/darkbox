@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Link, useParams } from 'react-router-dom';
 import { BookOpen, Search, X } from 'lucide-react';
 import { useIdentities, useMemory, useMemorySearch } from '../api/queries';
@@ -19,6 +20,8 @@ export function MemoryPage() {
   const { id } = useParams<{ id: string }>();
   const memory = useMemory(id);
   const identities = useIdentities(id);
+  const [searchParams] = useSearchParams();
+  const pageSlug = searchParams.get('page');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search, 300);
   const trimmedQuery = debouncedSearch.trim();
@@ -39,6 +42,12 @@ export function MemoryPage() {
       current && pages.some((page) => page.id === current) ? current : pages[0].id,
     );
   }, [pages]);
+
+  useEffect(() => {
+    if (!pageSlug) return;
+    const page = pages.find((item) => item.slug === pageSlug);
+    if (page) setSelectedId(page.id);
+  }, [pageSlug, pages]);
 
   const selected = pages.find((page) => page.id === selectedId) ?? null;
   const loading = active.isLoading;

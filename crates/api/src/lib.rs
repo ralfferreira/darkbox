@@ -265,6 +265,17 @@ pub fn router(state: AppState) -> Router {
             "/v1/assessments/{id}/scope-preview",
             post(routes::preview_scope),
         )
+        .route(
+            "/v1/assessments/{id}/agent/turns",
+            post(routes::agent::create_turn),
+        )
+        .route(
+            "/v1/runs/{id}/agent/events",
+            post(routes::agent::append_event),
+        )
+        .route("/v1/runs/{id}/agent/usage", post(routes::agent::usage))
+        .route("/v1/runs/{id}/agent/finish", post(routes::agent::finish))
+        .route("/v1/runs/{id}/agent/abort", post(routes::agent::abort))
         .route("/v1/assessments/{id}/inventory", get(routes::inventory))
         .route(
             "/v1/assessments/{id}/import-urls",

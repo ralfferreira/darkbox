@@ -75,6 +75,21 @@ target as the site URL and `params.limit` / `params.search`. `firecrawl_scrape`
 takes up to five targets and uses `note` as the scrape objective.
 `burp_import` needs no target and uses `params.limit`.
 
+### Agent turn endpoints
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| POST | `/assessments/{id}/agent/turns` | `AgentTurnRequest` | `AgentTurnResponse` (`run` + bounded `context`) |
+| POST | `/runs/{id}/agent/events` | `{event_type, payload}` | `EventDto` |
+| POST | `/runs/{id}/agent/usage` | token counts and model | `RunSummary` |
+| POST | `/runs/{id}/agent/finish` | `{summary, next_steps, evidence_ids}` | run and memory page |
+| POST | `/runs/{id}/agent/abort` | `{reason}` | `RunSummary` |
+
+The agent service owns the model loop. The API owns the durable agent run,
+lease, model-call budget, transcript events, memory checkpoint and audit.
+Allowed event types are `agent.message`, `agent.tool_call`, `agent.tool_result`,
+`agent.usage` and `agent.note`.
+
 ## Event envelope
 
 Every event includes `event_id`, `schema_version`, `workspace_id`,

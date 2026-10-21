@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Bounded agent turns built on the Vercel AI SDK (`apps/agent`) with typed
+  tools, durable agent runs, transcript events, model-call budgets and memory
+  checkpoints.
+- Agent panel in the assessment view and transcript in run detail.
+- Mock OpenAI-compatible provider for local development without a key.
+
 - Nmap adapter with scoped TCP connect scans, XML parsing and `network.*`
   observations.
 - Firecrawl adapter over REST or the hosted MCP server: URL discovery and a

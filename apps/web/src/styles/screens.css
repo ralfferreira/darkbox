@@ -1366,3 +1366,129 @@
     margin-left: 0;
   }
 }
+
+/* Agent transcript */
+.agent-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 18px 20px 20px;
+}
+
+.agent-objective {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-objective p {
+  margin-top: 5px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.agent-role {
+  font-size: 10px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.agent-step {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 14px;
+  border-left: 1px solid var(--line-strong);
+}
+
+.agent-step-tool {
+  border-left-color: rgba(201, 242, 77, 0.35);
+}
+
+.agent-step-error {
+  border-left-color: rgba(240, 115, 106, 0.5);
+}
+
+.agent-step-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-time {
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
+.agent-message {
+  white-space: pre-wrap;
+  font-size: 13px;
+  color: var(--text);
+  line-height: 1.55;
+}
+
+.agent-tool-summary {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.agent-tool-args summary {
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.agent-tool-args pre {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.agent-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-final {
+  padding: 14px;
+  border: 1px solid rgba(201, 242, 77, 0.18);
+  border-radius: var(--radius-sm);
+  background: rgba(201, 242, 77, 0.035);
+}
+
+.agent-next {
+  margin: 8px 0 10px;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.agent-working {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.agent-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 0 0 rgba(201, 242, 77, 0.5);
+  animation: agentPulse 1.6s ease-out infinite;
+}
+
+@keyframes agentPulse {
+  0% { box-shadow: 0 0 0 0 rgba(201, 242, 77, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(201, 242, 77, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(201, 242, 77, 0); }
+}

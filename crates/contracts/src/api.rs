@@ -266,6 +266,61 @@ pub struct ActionDto {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTurnRequest {
+    pub objective: String,
+    #[serde(default)]
+    pub identity_id: Option<IdentityId>,
+    #[serde(default = "default_agent_steps")]
+    pub max_steps: u32,
+    #[serde(default = "default_agent_tokens")]
+    pub token_budget: i64,
+}
+
+fn default_agent_steps() -> u32 {
+    4
+}
+
+fn default_agent_tokens() -> i64 {
+    4000
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentTurnResponse {
+    pub run: RunSummary,
+    pub context: ContextPackageDto,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentEventRequest {
+    pub event_type: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentUsageRequest {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub total_tokens: i64,
+    #[serde(default)]
+    pub model: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentFinishRequest {
+    pub summary: String,
+    #[serde(default)]
+    pub next_steps: Vec<String>,
+    #[serde(default)]
+    pub evidence_ids: Vec<EvidenceId>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentFinishResponse {
+    pub run: RunSummary,
+    pub page: MemoryPageDto,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CreateRunRequest {
     pub assessment_id: AssessmentId,
     pub kind: crate::RunKind,

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { Ban, RotateCw } from 'lucide-react';
 import { useEvidence, useResults, useRun } from '../api/queries';
 import { isTerminalRun, type EventDto, type RunState } from '../api/types';
+import { AgentTranscript } from '../components/AgentTranscript';
 import { CancelRunDialog, ResumeRunDialog } from '../components/RunControlDialogs';
 import { Status, LiveDot } from '../components/Status';
 import {
@@ -223,6 +224,14 @@ export function RunDetailPage() {
             </button>
           ) : null}
         </div>
+      ) : null}
+
+      {run.kind === 'agent' ? (
+        <AgentTranscript
+          events={mergedEvents}
+          assessmentId={id}
+          state={run.state}
+        />
       ) : null}
 
       <Panel title="Budget">

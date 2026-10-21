@@ -160,6 +160,23 @@ plugins.
 Residual risk: the build toolchain and base images are trusted inputs. Pin
 digests before publishing a release.
 
+### Model-driven agent
+
+The agent receives a bounded context package and can call only the tools the API
+exposes. Each tool call is an ordinary DarkBox run or read. Policy, budget,
+evidence ingestion and finding confirmation remain outside the model.
+
+Mitigations: no shell or database credential in the agent process; JSON tool
+schemas; a hard model-step cap and tool-call cap; atomic model-call reservations;
+transcript events for every call; hypotheses only, never confirmed findings;
+external text labelled untrusted in the prompt and rejected by the executor if
+it tries to exceed scope.
+
+Residual risk: prompt injection can waste budget or produce a misleading
+narrative within the evidence it was allowed to read. The transcript and
+evidence references make that reviewable, but do not make the model an
+authority. The operator still reviews confirmed findings.
+
 ### Optional adapters
 
 - **Nmap.** The adapter is a tool that sends packets. Scope is enforced by

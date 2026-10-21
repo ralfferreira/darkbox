@@ -53,7 +53,8 @@ export type RunKind =
   | 'network_scan'
   | 'firecrawl_map'
   | 'firecrawl_scrape'
-  | 'burp_import';
+  | 'burp_import'
+  | 'agent';
 export type StepKind =
   | 'http_observe'
   | 'http_probe'
@@ -66,7 +67,8 @@ export type StepKind =
   | 'network_scan'
   | 'firecrawl_map'
   | 'firecrawl_scrape'
-  | 'burp_import';
+  | 'burp_import'
+  | 'agent_turn';
 export type EffectStatus =
   | 'not_dispatched'
   | 'dispatched'
@@ -626,4 +628,9 @@ export interface CapabilitiesDto {
   model_provider: string;
   lab_url: string;
   raw_evidence_enabled: boolean;
+}
+
+export interface AgentTurnResponse {
+  run: RunSummary;
+  context: ContextPackageDto;
 }

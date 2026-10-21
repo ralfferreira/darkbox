@@ -7,6 +7,7 @@ use serde_json::json;
 
 use crate::{ApiError, AppState, Auth};
 
+pub mod agent;
 pub mod core;
 pub mod evidence;
 pub mod findings;

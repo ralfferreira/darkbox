@@ -20,6 +20,8 @@ covers AC-01 through AC-14 against the bundled lab. The last local run passed
 
 ![Optional integrations](docs/screenshots/integrations.png)
 
+![Agent turn](docs/screenshots/agent.png)
+
 - Separates workspaces, companies, assessments, target tenants, test identities
   and browser sessions. An identifier from another workspace is rejected before
   any operation.
@@ -41,6 +43,9 @@ covers AC-01 through AC-14 against the bundled lab. The last local run passed
   ports allowed by the scope. Firecrawl provides URL discovery and a managed
   browser scrape for JavaScript-heavy pages, which is the main web tool for the
   agent. Burp imports proxy history over MCP without creating new traffic.
+- A bounded AI agent built on the Vercel AI SDK. It receives a context package,
+  chooses typed tools, records every message and tool call, and writes a
+  checkpoint. It has no shell and cannot exceed the run policy.
 
 ## What it deliberately does not do
 
@@ -178,6 +183,48 @@ imported exchange is re-checked against the assessment scope and sanitized
 before storage. Burp remains an external installation; the core never requires
 it.
 
+## AI agent
+
+The agent is a separate TypeScript service in `apps/agent`, built with the
+[Vercel AI SDK](https://vercel.com/docs/ai-sdk). It is not a chat bolted onto the
+UI. Each turn is a durable DarkBox run with a lease, a model-step budget, a tool
+budget and a transcript.
+
+```sh
+cd apps/agent
+npm install
+export DARKBOX_MODEL_API_KEY=...
+export DARKBOX_MODEL_BASE_URL=https://api.openai.com/v1
+export DARKBOX_MODEL=your-tool-calling-model
+npm start
+```
+
+The service listens on `127.0.0.1:8790`; the web UI uses `VITE_AGENT_URL`.
+Click **Ask agent** on an assessment, give an objective, and follow the run.
+
+Tools available to the model:
+
+- `inventory_list`, `endpoint_observe`, `evidence_read`, `memory_search`
+- `firecrawl_scrape` (managed browser), `firecrawl_map`
+- `network_scan` (scoped Nmap), `flow_list`, `flow_reproduce`
+- `procedure_eligibility`, `finding_hypothesis`, `finish`
+
+Every tool is an operation exposed by the Rust API. The model never gets a
+terminal, a database connection or a secret. Policy, budgets, evidence
+ingestion and finding confirmation stay in the core. The agent service only
+proposes.
+
+To test without a provider, run the bundled mock:
+
+```sh
+cd apps/agent
+npm run mock-llm   # 127.0.0.1:9911
+DARKBOX_MODEL_BASE_URL=http://127.0.0.1:9911/v1 \
+DARKBOX_MODEL_API_KEY=mock DARKBOX_MODEL=mock-agent npm start
+```
+
+See `apps/agent/README.md` for the full contract and failure behaviour.
+
 ## Verify the promise
 
 With the lab and API running:
@@ -206,6 +253,7 @@ crates/integrations   Nmap, Firecrawl and Burp MCP adapters with capability prob
 crates/memory         context packages, deterministic synthesis, Markdown export
 crates/api            Axum routes, auth, SSE, export manifest
 crates/cli            migrate, seed, serve, worker, procedures, purge, verify
+apps/agent            Vercel AI SDK agent service with typed tools
 lab/application       synthetic target with two tenants and two identities
 adapters/browser-python  versioned JSON Lines browser adapter
 apps/web              operator interface
@@ -249,8 +297,16 @@ revokes future operations rather than expanding an existing run.
   that race; a production deployment needs a pinned resolver.
 - SSE uses short-interval database polling. It reconnects with a cursor and
   de-duplicates by event id, but it is not a push bus.
-- The LLM provider is optional and off by default. The agent operations are
-  typed; there is no terminal tool.
+- The agent requires a tool-calling OpenAI-compatible provider. Without a key
+  the service reports `missing_model_key` and the UI disables the turn. The
+  bundled mock exercises the tool loop without a provider.
+- Token and cost budgets are recorded per step. Model-call count is enforced
+  atomically; monetary cost is enforced when per-million-token rates are
+  configured. A provider that does not report usage leaves the cost estimate at
+  zero.
+- The agent proposes; it cannot confirm a finding, bypass scope or execute a
+  shell. A hypothesis created by the agent still needs evidence and human
+  review.
 
 ## Documentation
 

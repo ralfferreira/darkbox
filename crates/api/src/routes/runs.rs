@@ -367,6 +367,11 @@ async fn build_steps(
                 summary: "render and capture pages through the managed browser".into(),
             });
         }
+        RunKind::Agent => {
+            return Err(ApiError::invalid(
+                "agent turns are created through /v1/assessments/{id}/agent/turns",
+            ));
+        }
         RunKind::BurpImport => {
             steps.push(NewStep {
                 kind: StepKind::BurpImport,

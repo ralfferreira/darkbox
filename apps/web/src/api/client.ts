@@ -1,8 +1,9 @@
-import type { JsonValue } from './types';
+import type { AgentTurnResponse, JsonValue } from './types';
 
 export const TOKEN_KEY = 'darkbox.token';
 export const DEV_TOKEN = 'darkbox-dev-token';
 export const UNAUTHORIZED_EVENT = 'darkbox:unauthorized';
+export const AGENT_URL = (import.meta.env.VITE_AGENT_URL ?? 'http://127.0.0.1:8790').replace(/\/$/, '');
 
 export interface ApiErrorBody {
   error: {
@@ -147,4 +148,51 @@ export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   if (error instanceof Error) return error.message;
   return 'Something went wrong.';
+}
+
+export interface AgentHealth {
+  status: string;
+  model: string;
+  base_url: string;
+  api_url: string;
+  max_steps: number;
+}
+
+export async function agentHealth(): Promise<AgentHealth> {
+  const response = await fetch(`${AGENT_URL}/health`);
+  if (!response.ok) throw new Error(`Agent service returned ${response.status}`);
+  return (await response.json()) as AgentHealth;
+}
+
+export interface AgentTurnInput {
+  assessment_id: string;
+  objective: string;
+  identity_id: string | null;
+  max_steps: number;
+  token_budget: number;
+}
+
+export async function agentTurn(input: AgentTurnInput): Promise<AgentTurnResponse> {
+  const token = getToken();
+  if (!token) throw new ApiError(401, 'unauthorized', 'Sign in before starting an agent turn.');
+  const response = await fetch(`${AGENT_URL}/turns`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(input),
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    let message = `Agent service returned ${response.status}`;
+    try {
+      const parsed = JSON.parse(body) as { error?: string };
+      if (parsed.error) message = parsed.error;
+    } catch {
+      // Keep the status message.
+    }
+    throw new ApiError(response.status, 'agent_error', message);
+  }
+  return JSON.parse(body) as AgentTurnResponse;
 }

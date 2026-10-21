@@ -272,6 +272,10 @@ impl Executor {
             StepKind::FirecrawlMap => self.firecrawl_map(run, step).await,
             StepKind::FirecrawlScrape => self.firecrawl_scrape(run, step).await,
             StepKind::BurpImport => self.burp_import(run, step).await,
+            StepKind::AgentTurn => Ok(Outcome::blocked(
+                "agent_service_required",
+                "agent turns are executed by the TypeScript agent service, not the Rust worker",
+            )),
             StepKind::Reconcile => Ok(Outcome::succeeded(
                 "reconciliation recorded",
                 json!({ "note": step.operation.get("note").cloned().unwrap_or_default() }),
@@ -626,20 +630,28 @@ pub fn capabilities(config: &ExecutorConfig) -> Vec<Capability> {
         },
         Capability {
             id: "model.provider".into(),
-            provider: if std::env::var("DARKBOX_MODEL_API_KEY").is_ok() {
+            provider: if std::env::var("DARKBOX_AGENT_URL").is_ok() {
+                "vercel-ai-sdk"
+            } else if std::env::var("DARKBOX_MODEL_API_KEY").is_ok() {
                 "openai-compatible"
             } else {
                 "none"
             }
             .into(),
             version: "1".into(),
-            state: if std::env::var("DARKBOX_MODEL_API_KEY").is_ok() {
+            state: if std::env::var("DARKBOX_AGENT_URL").is_ok()
+                || std::env::var("DARKBOX_MODEL_API_KEY").is_ok()
+            {
                 CapabilityState::Available
             } else {
                 CapabilityState::Unavailable
             },
-            detail: if std::env::var("DARKBOX_MODEL_API_KEY").is_ok() {
-                "configured via DARKBOX_MODEL_API_KEY".into()
+            detail: if let Ok(url) = std::env::var("DARKBOX_AGENT_URL") {
+                format!(
+                    "agent service configured at {url}; provider health is reported by that service"
+                )
+            } else if std::env::var("DARKBOX_MODEL_API_KEY").is_ok() {
+                "provider key configured for memory synthesis; the AI SDK agent service is separate and not configured".into()
             } else {
                 "no model provider configured; memory synthesis stays deterministic".into()
             },

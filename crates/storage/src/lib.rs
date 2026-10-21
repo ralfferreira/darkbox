@@ -13,6 +13,7 @@ use sqlx::Row;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use uuid::Uuid;
 
+mod agent;
 mod assessments;
 mod auth;
 mod events;

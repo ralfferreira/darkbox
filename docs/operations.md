@@ -28,6 +28,15 @@
 | `DARKBOX_MODEL_BASE_URL` | `https://api.openai.com/v1` | provider base |
 | `DARKBOX_MODEL` | `gpt-4.1-mini` | model name |
 | `DARKBOX_MODEL_SYNTHESIS` | `0` | use the model for memory synthesis |
+| `DARKBOX_MODEL_API_KEY` | unset | agent service provider key |
+| `DARKBOX_MODEL_BASE_URL` | `https://api.openai.com/v1` | provider base |
+| `DARKBOX_MODEL` | `gpt-4.1-mini` | tool-calling model |
+| `DARKBOX_AGENT_URL` | unset | agent service advertised to the API capability list |
+| `DARKBOX_AGENT_PORT` | `8790` | agent service port |
+| `DARKBOX_AGENT_MAX_STEPS` | `4` | default model-step cap |
+| `VITE_AGENT_URL` | `http://127.0.0.1:8790` | UI agent endpoint |
+| `DARKBOX_MODEL_INPUT_MICROS_PER_MTOK` | `0` | optional input cost rate |
+| `DARKBOX_MODEL_OUTPUT_MICROS_PER_MTOK` | `0` | optional output cost rate |
 | `DARKBOX_FIRECRAWL_API_KEY` | unset | Firecrawl REST mode |
 | `DARKBOX_FIRECRAWL_MCP_URL` | unset | Firecrawl hosted MCP endpoint |
 | `DARKBOX_FIRECRAWL_MCP_TOKEN` | unset | Firecrawl OAuth access token |
@@ -78,6 +87,25 @@ Start the lab and API as shown in the README. The API serves
    requires evidence and a recorded reviewer.
 9. Export a sanitized manifest for the report. Keep the assessment for the
    retention window.
+
+## Agent service
+
+The AI agent is a separate TypeScript process. It needs a tool-calling
+OpenAI-compatible provider and a bearer token from the operator.
+
+```sh
+cd apps/agent && npm install
+DARKBOX_API_URL=http://127.0.0.1:8787 \
+DARKBOX_MODEL_API_KEY=... \
+DARKBOX_MODEL_BASE_URL=https://api.openai.com/v1 \
+DARKBOX_MODEL=your-tool-calling-model \
+npm start
+```
+
+The UI points at `VITE_AGENT_URL`, default `http://127.0.0.1:8790`. Each turn is
+a durable agent run. The model can call only the typed tools; it cannot bypass
+scope, budgets or finding review. If the service dies, the agent lease expires
+and the run is not silently resumed.
 
 ## Worker topologies
 
@@ -171,6 +199,9 @@ The acceptance report is a point-in-time proof, not a production dashboard.
 | Symptom | Check |
 | --- | --- |
 | API returns 401 | token hash is not seeded; run `darkbox seed` |
+| Agent dialog says unavailable | start `apps/agent` and set a provider key |
+| Agent run fails `budget_exhausted` | raise the model-call budget or lower `max_steps` |
+| Agent turn has no tool calls | the provider may not support tool calling; test with the bundled mock |
 | run stays queued | no worker; set `DARKBOX_INLINE_WORKER=1` or start `darkbox worker` |
 | all targets excluded | exclude list includes the whole host, or the port is missing from `allowed_ports` |
 | browser run blocked | adapter script missing, python missing, or secret env var unset |

@@ -3,6 +3,8 @@ WORKDIR /web
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci
 COPY apps/web ./
+ARG VITE_AGENT_URL=http://127.0.0.1:8790
+ENV VITE_AGENT_URL=$VITE_AGENT_URL
 RUN npm run build
 
 FROM rust:1.99-bookworm AS builder

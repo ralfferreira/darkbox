@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { Download, Play, Plug, Plus, RotateCcw } from 'lucide-react';
+import { Download, Play, Plug, Plus, RotateCcw, Sparkles } from 'lucide-react';
 import { useAssessment, useFlows, useObservations } from '../api/queries';
 import { isTerminalRun, type AssessmentDetail } from '../api/types';
 import { ExportDialog } from '../components/ExportDialog';
 import { FlowRunDialog, ProcedureRunDialog } from '../components/RunStartDialogs';
 import { ImportUrlsDialog } from '../components/ImportUrlsDialog';
+import { AgentTurnDialog } from '../components/AgentTurnDialog';
 import { IntegrationRunDialog } from '../components/IntegrationRunDialog';
 import { Status } from '../components/Status';
 import {
@@ -101,6 +102,7 @@ export function AssessmentOverviewPage() {
   const [procedureOpen, setProcedureOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
 
   if (assessment.isError) {
     return (
@@ -157,6 +159,16 @@ export function AssessmentOverviewPage() {
             >
               <Play size={14} strokeWidth={1.5} aria-hidden="true" />
               Run procedure
+            </button>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => setAgentOpen(true)}
+              disabled={!canWrite}
+              title={canWrite ? undefined : 'Your role cannot start runs.'}
+            >
+              <Sparkles size={14} strokeWidth={1.5} aria-hidden="true" />
+              Ask agent
             </button>
             <button
               type="button"
@@ -471,6 +483,11 @@ export function AssessmentOverviewPage() {
           <ProcedureRunDialog
             open={procedureOpen}
             onClose={() => setProcedureOpen(false)}
+            assessmentId={id}
+          />
+          <AgentTurnDialog
+            open={agentOpen}
+            onClose={() => setAgentOpen(false)}
             assessmentId={id}
           />
           <IntegrationRunDialog

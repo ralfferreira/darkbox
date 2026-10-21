@@ -115,6 +115,7 @@ string_state!(RunKind {
     FirecrawlMap => "firecrawl_map",
     FirecrawlScrape => "firecrawl_scrape",
     BurpImport => "burp_import",
+    Agent => "agent",
 });
 
 string_state!(StepKind {
@@ -130,6 +131,7 @@ string_state!(StepKind {
     FirecrawlMap => "firecrawl_map",
     FirecrawlScrape => "firecrawl_scrape",
     BurpImport => "burp_import",
+    AgentTurn => "agent_turn",
 });
 
 string_state!(EffectStatus {

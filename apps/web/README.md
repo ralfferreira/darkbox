@@ -11,7 +11,10 @@ npm run dev
 ```
 
 The dev server listens on `http://127.0.0.1:5173` and proxies `/v1` to
-`http://127.0.0.1:8787`. Start the API first.
+`http://127.0.0.1:8787`. The AI agent is a separate service at
+`http://127.0.0.1:8790`; override it with `VITE_AGENT_URL`.
+
+Start the API and, for agent turns, `apps/agent` first.
 
 Open the app and paste a token. The local seed uses `darkbox-dev-token`.
 The token is stored in `localStorage` under `darkbox.token`. Signing out removes

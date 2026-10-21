@@ -12,6 +12,7 @@ flowchart LR
     UI[React operator UI] -->|Bearer token| API[Axum API]
     API --> DB[(PostgreSQL)]
     API --> MEM[Memory and context]
+    AGENT[Vercel AI SDK agent] -->|typed tool calls| API
     API --> OBJ[(Object store)]
     API -->|enqueue| DB
     WORKER[Worker process] -->|lease + claim| DB

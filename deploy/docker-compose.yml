@@ -19,6 +19,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/images/Dockerfile
+      args:
+        VITE_AGENT_URL: ${DARKBOX_AGENT_PUBLIC_URL:-http://127.0.0.1:8790}
     image: darkbox/core:0.3.0
     command: ["darkbox", "serve", "--bind", "0.0.0.0:8787"]
     environment:
@@ -26,6 +28,7 @@ services:
       DARKBOX_BLOB_ROOT: /data/objects
       DARKBOX_REPO_ROOT: /app
       DARKBOX_LAB_URL: http://lab:8080
+      DARKBOX_AGENT_URL: http://agent:8790
       DARKBOX_ADAPTER_PYTHON: python3
       DARKBOX_INLINE_WORKER: "1"
       DARKBOX_WEB_DIST: /app/web
@@ -63,6 +66,24 @@ services:
     ports:
       - "8080:8080"
       - "9099:9099"
+
+  agent:
+    build:
+      context: ..
+      dockerfile: deploy/images/agent.Dockerfile
+    image: darkbox/agent:0.3.0
+    environment:
+      DARKBOX_API_URL: http://api:8787
+      DARKBOX_AGENT_PORT: "8790"
+      DARKBOX_MODEL_API_KEY: ${DARKBOX_MODEL_API_KEY:-}
+      DARKBOX_MODEL_BASE_URL: ${DARKBOX_MODEL_BASE_URL:-https://api.openai.com/v1}
+      DARKBOX_MODEL: ${DARKBOX_MODEL:-gpt-4.1-mini}
+      DARKBOX_AGENT_MAX_STEPS: ${DARKBOX_AGENT_MAX_STEPS:-4}
+    ports:
+      - "8790:8790"
+    depends_on:
+      api:
+        condition: service_healthy
 
   worker:
     image: darkbox/core:0.3.0
