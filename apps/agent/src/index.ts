@@ -223,8 +223,10 @@ async function executeModel(
           await settleStep(step as ModelStep, index);
         }
         const callId = `${runId}-call-${reservedCalls.length + 1}`;
-        reservedCalls.push(callId);
+        // Reserve before recording the call so a budget refusal does not leave a
+        // phantom call that the failure path would try to settle.
         await api.reserveUsage(runId, callId, ACTIVE_MODEL, estimatedInputTokens, 1600);
+        reservedCalls.push(callId);
         return {};
       },
     });

@@ -21,11 +21,67 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-API = os.environ.get("DARKBOX_API_URL", "http://127.0.0.1:8787").rstrip("/") + "/v1"
+API_PORT = 8789
+API = f"http://127.0.0.1:{API_PORT}/v1"
 TOKEN = os.environ.get("DARKBOX_TOKEN", "darkbox-dev-token")
 AGENT = "http://127.0.0.1:8796"
 PROVIDER_PORT = 9912
 LAB = os.environ.get("DARKBOX_LAB_URL", "http://127.0.0.1:8080").rstrip("/")
+# Non-zero monetary rates so the accounting protocol is exercised with a real
+# cost, not only with token counts.
+INPUT_RATE_MICROS_PER_MTOK = 1000
+OUTPUT_RATE_MICROS_PER_MTOK = 1000
+
+
+def load_env():
+    env = dict(os.environ)
+    path = ROOT / ".env"
+    if path.exists():
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            env[key.strip()] = value
+    env["DARKBOX_MODEL_INPUT_MICROS_PER_MTOK"] = str(INPUT_RATE_MICROS_PER_MTOK)
+    env["DARKBOX_MODEL_OUTPUT_MICROS_PER_MTOK"] = str(OUTPUT_RATE_MICROS_PER_MTOK)
+    return env
+
+
+ENV = load_env()
+
+
+def start_api():
+    process = subprocess.Popen(
+        [
+            str(ROOT / "target/debug/darkbox"),
+            "serve",
+            "--bind",
+            f"127.0.0.1:{API_PORT}",
+        ],
+        cwd=ROOT,
+        env=ENV,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            status, _ = http("GET", f"http://127.0.0.1:{API_PORT}/health", timeout=2)
+            if status == 200:
+                return process
+        except Exception:
+            pass
+        time.sleep(0.2)
+    process.kill()
+    output = b""
+    try:
+        output = process.stdout.read() or b""
+    except Exception:
+        pass
+    raise RuntimeError(
+        f"contract API did not start: {output.decode('utf-8', 'replace')[-1200:]}"
+    )
 
 
 def http(method, url, body=None, timeout=60, token=None):
@@ -73,7 +129,12 @@ class Provider(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _tool(self, name, arguments):
+    def _tool(self, name, arguments, usage=None):
+        usage = usage or {
+            "prompt_tokens": 80,
+            "completion_tokens": 20,
+            "total_tokens": 100,
+        }
         return {
             "id": f"chatcmpl-{time.time_ns()}",
             "object": "chat.completion",
@@ -98,11 +159,7 @@ class Provider(BaseHTTPRequestHandler):
                     "finish_reason": "tool_calls",
                 }
             ],
-            "usage": {
-                "prompt_tokens": 80,
-                "completion_tokens": 20,
-                "total_tokens": 100,
-            },
+            "usage": usage,
         }
 
     def do_POST(self):
@@ -132,6 +189,20 @@ class Provider(BaseHTTPRequestHandler):
         if "budget exhaustion" in objective:
             self._send(200, self._tool("identity_list", {}))
             return
+        if "cost overrun" in objective:
+            self._send(
+                200,
+                self._tool(
+                    "identity_list",
+                    {},
+                    usage={
+                        "prompt_tokens": 80,
+                        "completion_tokens": 200000,
+                        "total_tokens": 200080,
+                    },
+                ),
+            )
+            return
         self._send(
             200,
             self._tool(
@@ -154,10 +225,10 @@ def start_provider():
 
 
 def start_agent():
-    env = dict(os.environ)
+    env = dict(ENV)
     env.update(
         {
-            "DARKBOX_API_URL": API.removesuffix("/v1"),
+            "DARKBOX_API_URL": f"http://127.0.0.1:{API_PORT}",
             "DARKBOX_AGENT_PORT": "8796",
             "DARKBOX_AGENT_HOST": "127.0.0.1",
             "DARKBOX_AGENT_PLANNER": "",
@@ -187,7 +258,9 @@ def start_agent():
     raise RuntimeError("contract agent did not start")
 
 
-def create_assessment(name, max_model_calls=20, action_classes=None):
+def create_assessment(
+    name, max_model_calls=20, action_classes=None, max_cost_micros=1_000_000
+):
     companies = call("GET", "/companies")[1]
     company_id = companies[0]["id"]
     policy = {
@@ -207,7 +280,7 @@ def create_assessment(name, max_model_calls=20, action_classes=None):
             "max_requests": 100,
             "max_browser_steps": 100,
             "max_model_calls": max_model_calls,
-            "max_cost_micros": 1_000_000,
+            "max_cost_micros": max_cost_micros,
             "max_artifact_bytes": 10_000_000,
             "max_concurrency_per_origin": 2,
         },
@@ -279,6 +352,7 @@ def event_types(detail):
 
 
 def main():
+    api_process = start_api()
     provider = start_provider()
     agent = start_agent()
     rows = []
@@ -460,6 +534,46 @@ def main():
 
         rows.append(("ACCOUNT-06", "Model budget blocks another call", budget()))
 
+        def cost_overrun():
+            over_aid, over_identity = create_assessment(
+                "Contract cost overrun", max_model_calls=10, max_cost_micros=10
+            )
+            _, result = turn(
+                over_aid, over_identity, "contract cost overrun", max_steps=4
+            )
+            run_id = result.get("run_id") or result.get("runId")
+            detail = wait_run(run_id)
+            spent = detail["run"]["spent"]
+            if detail["run"]["state"] not in ("failed", "cancelled"):
+                raise AssertionError(f"overrun run is {detail['run']['state']}")
+            if not detail["run"]["budget_blocked"]:
+                raise AssertionError("run was not blocked after the overrun")
+            if spent["overage_micros"] <= 0:
+                raise AssertionError("the overage was not recorded")
+            if spent["cost_micros"] != 10:
+                raise AssertionError(
+                    f"spent cost is {spent['cost_micros']}, expected the budget cap"
+                )
+            progress = call("GET", f"/runs/{run_id}/browser/progress")[1]
+            calls = progress.get("model_calls", [])
+            if not calls:
+                raise AssertionError("no model call was persisted")
+            recorded = calls[0]
+            if (recorded.get("output_tokens") or 0) < 200000:
+                raise AssertionError("the reported token usage was not persisted")
+            if (recorded.get("cost_micros") or 0) < 200:
+                raise AssertionError("the reported cost was not persisted")
+            if (recorded.get("overage_micros") or 0) <= 0:
+                raise AssertionError("the per-call overage was not persisted")
+            return (
+                "a real cost above the budget was persisted, the excess recorded and new calls blocked",
+                [run_id],
+            )
+
+        rows.append(
+            ("ACCOUNT-07", "Cost overrun is persisted and blocks calls", cost_overrun())
+        )
+
         report = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "criteria": [
@@ -488,6 +602,11 @@ def main():
             agent.wait(timeout=5)
         except subprocess.TimeoutExpired:
             agent.kill()
+        api_process.terminate()
+        try:
+            api_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            api_process.kill()
 
 
 if __name__ == "__main__":

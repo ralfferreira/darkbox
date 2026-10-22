@@ -12,8 +12,10 @@ pub const RUN_JSON: &str = "to_jsonb(r) || jsonb_build_object(
         'browser_steps', r.spent_browser_steps,
         'model_calls', r.spent_model_calls,
         'cost_micros', r.spent_cost_micros,
+        'overage_micros', r.cost_overage_micros,
         'artifact_bytes', r.spent_artifact_bytes
-    )
+    ),
+    'budget_blocked', r.budget_blocked
 )";
 
 #[derive(Debug, Clone)]
@@ -153,8 +155,10 @@ impl Db {
                 'spent', jsonb_build_object(
                     'requests', r.spent_requests, 'browser_steps', r.spent_browser_steps,
                     'model_calls', r.spent_model_calls, 'cost_micros', r.spent_cost_micros,
+                    'overage_micros', r.cost_overage_micros,
                     'artifact_bytes', r.spent_artifact_bytes),
-                'effect_unknown', r.effect_unknown, 'reason', r.reason,
+                'effect_unknown', r.effect_unknown, 'budget_blocked', r.budget_blocked,
+                'reason', r.reason,
                 'idempotency_key', r.idempotency_key,
                 'created_at', r.created_at, 'started_at', r.started_at, 'finished_at', r.finished_at,
                 'step_count', (SELECT count(*) FROM run_steps s WHERE s.run_id=r.id),
@@ -184,8 +188,10 @@ impl Db {
                 'spent', jsonb_build_object(
                     'requests', r.spent_requests, 'browser_steps', r.spent_browser_steps,
                     'model_calls', r.spent_model_calls, 'cost_micros', r.spent_cost_micros,
+                    'overage_micros', r.cost_overage_micros,
                     'artifact_bytes', r.spent_artifact_bytes),
-                'effect_unknown', r.effect_unknown, 'reason', r.reason,
+                'effect_unknown', r.effect_unknown, 'budget_blocked', r.budget_blocked,
+                'reason', r.reason,
                 'idempotency_key', r.idempotency_key,
                 'created_at', r.created_at, 'started_at', r.started_at, 'finished_at', r.finished_at,
                 'step_count', (SELECT count(*) FROM run_steps s WHERE s.run_id=r.id),

@@ -642,9 +642,31 @@ pub async fn usage(
                     "total_tokens": settled.get("total_tokens"),
                     "cost_micros": settled.get("cost_micros"),
                     "reserved_cost_micros": settled.get("reserved_cost_micros"),
+                    "overage_micros": settled.get("overage_micros"),
+                    "budget_blocked": settled.get("budget_blocked"),
                 }),
             )
             .await?;
+        if settled
+            .get("overage_micros")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+            > 0
+        {
+            state
+                .db
+                .append_agent_event(
+                    auth.workspace_id,
+                    run_id,
+                    "agent.accounting_error",
+                    json!({
+                        "error": "reported cost exceeded the run budget; new model calls are blocked",
+                        "call_id": call_id,
+                        "overage_micros": settled.get("overage_micros"),
+                    }),
+                )
+                .await?;
+        }
     }
     Ok(Json(state.db.run_summary(auth.workspace_id, run_id).await?))
 }

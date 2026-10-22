@@ -463,6 +463,16 @@ impl Db {
         estimated_cost_micros: i64,
     ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
+        // Once a real cost exceeded the budget the run stays blocked: the spend
+        // already happened and must not be followed by another call.
+        let blocked: bool = sqlx::query_scalar("SELECT budget_blocked FROM runs WHERE id=$1")
+            .bind(run_id.as_uuid())
+            .fetch_one(&mut *tx)
+            .await?;
+        if blocked {
+            tx.rollback().await?;
+            return Ok(false);
+        }
         let inserted = sqlx::query(
             "INSERT INTO agent_model_calls
                 (call_id, workspace_id, assessment_id, run_id, model, reserved_cost_micros)
@@ -522,8 +532,14 @@ impl Db {
     ) -> Result<Option<serde_json::Value>> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
-            "SELECT cost_micros, reserved_cost_micros, settled_at FROM agent_model_calls
-             WHERE call_id=$1 AND run_id=$2 FOR UPDATE",
+            "SELECT c.reserved_cost_micros, c.settled_at,
+                    r.spent_cost_micros,
+                    (r.budget->>'max_cost_micros')::bigint AS cost_limit,
+                    r.budget_blocked
+             FROM agent_model_calls c
+             JOIN runs r ON r.id = c.run_id
+             WHERE c.call_id=$1 AND c.run_id=$2
+             FOR UPDATE OF c, r",
         )
         .bind(call_id)
         .bind(run_id.as_uuid())
@@ -536,6 +552,9 @@ impl Db {
             return Ok(None);
         }
         let reserved: i64 = row.try_get::<i64, _>("reserved_cost_micros").unwrap_or(0);
+        let spent: i64 = row.try_get::<i64, _>("spent_cost_micros").unwrap_or(0);
+        let limit: i64 = row.try_get::<i64, _>("cost_limit").unwrap_or(i64::MAX);
+        let blocked: bool = row.try_get::<bool, _>("budget_blocked").unwrap_or(false);
         let actual = if usage_known { cost_micros } else { None };
         // Unknown usage keeps the conservative monetary reservation.
         let delta = if usage_known {
@@ -543,22 +562,43 @@ impl Db {
         } else {
             0
         };
-        if delta != 0 {
-            let spent: i64 = sqlx::query_scalar("SELECT darkbox_adjust_cost($1,$2)")
-                .bind(run_id.as_uuid())
-                .bind(delta)
-                .fetch_one(&mut *tx)
-                .await?;
-            if spent < 0 {
-                tx.rollback().await?;
-                return Err(DbError::Conflict(
-                    "reported cost exceeds the run budget".into(),
-                ));
-            }
+        let mut overage = 0i64;
+        let mut new_blocked = blocked;
+        if delta > 0 {
+            // The spend already happened. Persist it: the run keeps as much as
+            // fits the budget, the excess is recorded, and new calls are
+            // blocked. Rolling back would erase real consumption.
+            let desired = spent.saturating_add(delta);
+            let capped = desired.min(limit);
+            overage = desired - capped;
+            new_blocked = blocked || overage > 0;
+            sqlx::query(
+                "UPDATE runs SET spent_cost_micros=$2,
+                    cost_overage_micros = cost_overage_micros + $3,
+                    budget_blocked = $4, updated_at=now()
+                 WHERE id=$1",
+            )
+            .bind(run_id.as_uuid())
+            .bind(capped)
+            .bind(overage)
+            .bind(new_blocked)
+            .execute(&mut *tx)
+            .await?;
+        } else if delta < 0 {
+            sqlx::query(
+                "UPDATE runs SET spent_cost_micros=GREATEST(0, spent_cost_micros + $2),
+                    updated_at=now()
+                 WHERE id=$1",
+            )
+            .bind(run_id.as_uuid())
+            .bind(delta)
+            .execute(&mut *tx)
+            .await?;
         }
         sqlx::query(
             "UPDATE agent_model_calls SET settled_at=now(), input_tokens=$2,
-                output_tokens=$3, total_tokens=$4, cost_micros=$5, usage_known=$6
+                output_tokens=$3, total_tokens=$4, cost_micros=$5, usage_known=$6,
+                overage_micros=$7
              WHERE call_id=$1",
         )
         .bind(call_id)
@@ -567,6 +607,7 @@ impl Db {
         .bind(total_tokens)
         .bind(actual)
         .bind(usage_known)
+        .bind(overage)
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -578,6 +619,8 @@ impl Db {
             "cost_micros": actual,
             "usage_known": usage_known,
             "reserved_cost_micros": reserved,
+            "overage_micros": overage,
+            "budget_blocked": new_blocked,
         })))
     }
 
@@ -588,7 +631,7 @@ impl Db {
                 'settled_at', settled_at, 'input_tokens', input_tokens,
                 'output_tokens', output_tokens, 'total_tokens', total_tokens,
                 'cost_micros', cost_micros, 'reserved_cost_micros', reserved_cost_micros,
-                'usage_known', usage_known
+                'overage_micros', overage_micros, 'usage_known', usage_known
              ) AS row FROM agent_model_calls WHERE run_id=$1 ORDER BY reserved_at",
         )
         .bind(run_id.as_uuid())

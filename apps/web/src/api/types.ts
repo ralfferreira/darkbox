@@ -125,6 +125,7 @@ export interface BudgetSpent {
   browser_steps: number;
   model_calls: number;
   cost_micros: number;
+  overage_micros: number;
   artifact_bytes: number;
 }
 
@@ -433,6 +434,7 @@ export interface RunSummary {
   budget: Budget;
   spent: BudgetSpent;
   effect_unknown: boolean;
+  budget_blocked: boolean;
   reason: string | null;
   idempotency_key: string;
   created_at: string;

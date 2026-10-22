@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-22T03:59:40.259896+00:00",
+  "generated_at": "2026-10-22T04:29:42.813145+00:00",
   "criteria": [
     {
       "id": "ACCOUNT-01",
@@ -7,7 +7,7 @@
       "status": "passed",
       "detail": "finish settled the completed call before closing the run",
       "evidence": [
-        "01a161c3-ad89-73e1-9678-fb25ccb83365"
+        "01a161df-2e58-704e-8fff-357067b9d585"
       ]
     },
     {
@@ -16,7 +16,7 @@
       "status": "passed",
       "detail": "three model steps produced three settled usage records before completion",
       "evidence": [
-        "01a161c3-addb-7141-9e14-d6a5791b5f38"
+        "01a161df-2eb6-714b-b431-6f15a8b1a9b0"
       ]
     },
     {
@@ -25,7 +25,7 @@
       "status": "passed",
       "detail": "duplicate settle was idempotent",
       "evidence": [
-        "01a161c3-ae21-769e-bb90-a1921e825893"
+        "01a161df-2f0c-7683-b59f-eb2446bacc07"
       ]
     },
     {
@@ -34,7 +34,7 @@
       "status": "passed",
       "detail": "provider failure is visible and the reserved call is settled unknown",
       "evidence": [
-        "01a161c3-ae4a-760a-be02-b93d59e903a6"
+        "01a161df-2f2f-737f-a5d9-b8027b55e497"
       ]
     },
     {
@@ -43,7 +43,7 @@
       "status": "passed",
       "detail": "cancellation interrupted the model call and settled it",
       "evidence": [
-        "01a161c3-b653-7334-a3c1-8ce38441801f"
+        "01a161df-3744-72bb-96e2-a5a30bdfd95b"
       ]
     },
     {
@@ -52,7 +52,16 @@
       "status": "passed",
       "detail": "the second model call was refused by the aggregate budget",
       "evidence": [
-        "01a161c3-bc9f-7088-800d-f9983e8cd5cd"
+        "01a161df-3d98-74a3-9ec5-7882480a8e70"
+      ]
+    },
+    {
+      "id": "ACCOUNT-07",
+      "title": "Cost overrun is persisted and blocks calls",
+      "status": "passed",
+      "detail": "a real cost above the budget was persisted, the excess recorded and new calls blocked",
+      "evidence": [
+        "01a161df-3dea-7560-bb78-ded0bb6b1e94"
       ]
     }
   ]

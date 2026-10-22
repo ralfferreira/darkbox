@@ -456,6 +456,10 @@ pub struct RunSummary {
     pub budget: Budget,
     pub spent: crate::BudgetSpent,
     pub effect_unknown: bool,
+    /// True once a reported cost exceeded the run budget. No new model call is
+    /// accepted while it is set.
+    #[serde(default)]
+    pub budget_blocked: bool,
     pub reason: Option<String>,
     pub idempotency_key: String,
     pub created_at: chrono::DateTime<chrono::Utc>,

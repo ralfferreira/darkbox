@@ -266,6 +266,9 @@ pub struct BudgetSpent {
     pub browser_steps: i64,
     pub model_calls: i64,
     pub cost_micros: i64,
+    /// Cost reported above the run budget. It is persisted, not rolled back.
+    #[serde(default)]
+    pub overage_micros: i64,
     pub artifact_bytes: i64,
 }
 
