@@ -29,7 +29,8 @@ services:
       DARKBOX_REPO_ROOT: /app
       DARKBOX_LAB_URL: http://lab:8080
       DARKBOX_AGENT_URL: http://agent:8790
-      DARKBOX_ADAPTER_PYTHON: python3
+      DARKBOX_ADAPTER_PYTHON: /opt/browser/bin/python
+      DARKBOX_BROWSER_MODE: auto
       DARKBOX_INLINE_WORKER: "1"
       DARKBOX_WEB_DIST: /app/web
       LAB_ALICE_PASSWORD: alice-lab-pass
@@ -63,6 +64,7 @@ services:
     environment:
       LAB_PORT: "8080"
       EXCLUDED_PORT: "9099"
+      LAB_BIND: 0.0.0.0
     ports:
       - "8080:8080"
       - "9099:9099"
@@ -75,10 +77,12 @@ services:
     environment:
       DARKBOX_API_URL: http://api:8787
       DARKBOX_AGENT_PORT: "8790"
+      DARKBOX_AGENT_HOST: 0.0.0.0
       DARKBOX_MODEL_API_KEY: ${DARKBOX_MODEL_API_KEY:-}
       DARKBOX_MODEL_BASE_URL: ${DARKBOX_MODEL_BASE_URL:-https://api.openai.com/v1}
       DARKBOX_MODEL: ${DARKBOX_MODEL:-gpt-4.1-mini}
-      DARKBOX_AGENT_MAX_STEPS: ${DARKBOX_AGENT_MAX_STEPS:-4}
+      DARKBOX_AGENT_MAX_STEPS: ${DARKBOX_AGENT_MAX_STEPS:-8}
+      DARKBOX_AGENT_PLANNER: ${DARKBOX_AGENT_PLANNER:-}
     ports:
       - "8790:8790"
     depends_on:
@@ -95,7 +99,8 @@ services:
       DATABASE_URL: postgres://darkbox:darkbox@postgres:5432/darkbox
       DARKBOX_BLOB_ROOT: /data/objects
       DARKBOX_REPO_ROOT: /app
-      DARKBOX_ADAPTER_PYTHON: python3
+      DARKBOX_ADAPTER_PYTHON: /opt/browser/bin/python
+      DARKBOX_BROWSER_MODE: auto
       LAB_ALICE_PASSWORD: alice-lab-pass
       LAB_BOB_PASSWORD: bob-lab-pass
     volumes:

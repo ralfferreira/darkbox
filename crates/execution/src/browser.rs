@@ -4,9 +4,7 @@ use std::sync::atomic::AtomicBool;
 use darkbox_contracts::*;
 use darkbox_domain::Run;
 use darkbox_evidence::sanitize_text;
-use darkbox_policy::TargetRole;
 use serde_json::{Value, json};
-use url::Url;
 
 use crate::bridge::{AdapterRequest, AdapterResult, call_adapter};
 use crate::{ExecError, ExecResult, Executor, Outcome, StepOutcomeState, operation_str};
@@ -16,7 +14,7 @@ impl Executor {
         &self,
         run: &Run,
         step: &darkbox_domain::RunStepRecord,
-        cancelled: Arc<AtomicBool>,
+        _cancelled: Arc<AtomicBool>,
     ) -> ExecResult<Outcome> {
         let identity_id: IdentityId = operation_str(step, "identity_id")
             .ok_or_else(|| ExecError::Invalid("identity_id is required".into()))?
@@ -37,82 +35,104 @@ impl Executor {
         }
         let base_url = operation_str(step, "base_url")
             .ok_or_else(|| ExecError::Invalid("base_url is required".into()))?;
-        let (_, decision) = self
-            .authorize_url(
+        let opened = self
+            .browser_open(
                 run,
-                base_url,
-                ActionClass::Session,
-                TargetRole::NavigationDependency,
+                &json!({
+                    "url": base_url,
+                    "identity_id": identity_id,
+                    "tenant": tenant,
+                }),
             )
             .await?;
-        if !decision.allowed {
-            return Err(ExecError::Blocked(format!(
-                "session base URL denied by {}",
-                decision.rule
-            )));
+        if opened.get("status").and_then(Value::as_str) != Some("ok") {
+            return Ok(Outcome::blocked(
+                "browser_session_blocked",
+                opened
+                    .get("summary")
+                    .and_then(Value::as_str)
+                    .unwrap_or("browser session could not be opened"),
+            ));
         }
-        if !self.db.reserve_budget(run.id, "browser_steps", 1).await? {
-            return Err(ExecError::Blocked("budget_exhausted: browser_steps".into()));
+        let context_key = opened
+            .get("session")
+            .and_then(|value| value.get("context_key"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let mut login = identity.login_config.clone();
+        if login.is_null() || !login.is_object() {
+            login = json!({});
         }
-        let payload = json!({
-            "identity": {
-                "label": identity.label,
-                "role": identity.role_label,
-                "tenant_keys": identity.tenant_keys,
-                "secret_ref": identity.secret_ref,
-            },
-            "tenant": tenant,
-            "base_url": base_url,
-            "login_path": operation_str(step, "login_path").unwrap_or("/login"),
-            "username": operation_str(step, "username").unwrap_or(&identity.label),
-        });
+        if login.get("login_url").is_none() {
+            let login_path = operation_str(step, "login_path").unwrap_or("/login");
+            if let Some(object) = login.as_object_mut() {
+                object.insert(
+                    "login_url".into(),
+                    json!(format!(
+                        "{}{}",
+                        base_url.trim_end_matches('/'),
+                        if login_path.starts_with('/') {
+                            login_path.to_string()
+                        } else {
+                            format!("/{login_path}")
+                        }
+                    )),
+                );
+            }
+        }
         let result = self
-            .browser_call(run, step, "browser.session", &payload, cancelled)
+            .browser_command(run, &context_key, "login", &json!({ "login": login }))
             .await?;
-        let (mut outcome, _evidence) = self
-            .apply_browser_payload(run, step, Some(identity_id), &result.payload)
-            .await?;
-        if outcome.state == StepOutcomeState::Succeeded {
-            let session = result
-                .payload
-                .get("session")
-                .cloned()
-                .unwrap_or(Value::Null);
-            let state = session
-                .get("state")
-                .and_then(|v| v.as_str())
-                .unwrap_or("authenticated");
-            let context_key = session
-                .get("context_key")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("ctx-{}-{}", identity_id, uuid::Uuid::now_v7()));
-            let expires_at = session
-                .get("expires_at")
-                .and_then(|v| v.as_str())
-                .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok())
-                .map(|v| v.with_timezone(&chrono::Utc));
-            self.db
-                .record_session(
-                    run.workspace_id,
-                    run.assessment_id,
-                    identity_id,
-                    tenant.as_deref(),
-                    &context_key,
-                    state,
-                    expires_at,
-                )
-                .await?;
-            outcome.summary = format!("session {} for {}", state, identity.label);
-        }
-        Ok(outcome)
+        let status = result
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("error");
+        let login_state = result
+            .get("login_state")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let evidence_ids: Vec<EvidenceId> = result
+            .get("evidence_ids")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|value| value.parse::<EvidenceId>().ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let state = match (status, login_state) {
+            ("ok", "authenticated") => StepOutcomeState::Succeeded,
+            ("blocked", _) => StepOutcomeState::Blocked,
+            _ => StepOutcomeState::Failed,
+        };
+        Ok(Outcome {
+            state,
+            effect: EffectStatus::NotApplicable,
+            summary: result
+                .get("summary")
+                .and_then(Value::as_str)
+                .unwrap_or("browser login")
+                .to_string(),
+            result: json!({
+                "status": if state == StepOutcomeState::Succeeded { "succeeded" } else { "blocked" },
+                "session": {
+                    "context_key": context_key,
+                    "state": login_state,
+                    "tenant": tenant,
+                },
+                "evidence_ids": evidence_ids,
+            }),
+        })
     }
 
     pub(crate) async fn browser_flow(
         &self,
         run: &Run,
         step: &darkbox_domain::RunStepRecord,
-        cancelled: Arc<AtomicBool>,
+        _cancelled: Arc<AtomicBool>,
     ) -> ExecResult<Outcome> {
         let flow_id: FlowId = match operation_str(step, "flow_id") {
             Some(raw) => raw
@@ -141,107 +161,204 @@ impl Executor {
                 .await?;
             return Err(ExecError::Blocked("identity_expired".into()));
         }
-        let mut steps = Vec::new();
-        for step_def in &flow.steps {
-            let Some(endpoint_id) = step_def.endpoint_id else {
-                continue;
-            };
+        if flow.steps.iter().all(|item| {
+            item.action_json.is_null()
+                || item
+                    .action_json
+                    .as_object()
+                    .map(|object| object.is_empty())
+                    .unwrap_or(true)
+        }) {
+            self.db
+                .update_flow_observation(flow_id, FlowState::Blocked, &[], &[])
+                .await?;
+            return Ok(Outcome::blocked(
+                "flow_has_no_recorded_actions",
+                "the flow has no recorded browser actions; reproduce it from a new exploration instead of replaying guessed GET requests",
+            ));
+        }
+        let mut start_url = flow.steps.iter().find_map(|item| {
+            item.action_json
+                .get("url")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        });
+        if start_url.is_none()
+            && let Some(endpoint_id) = flow.steps.iter().find_map(|item| item.endpoint_id)
+        {
             let endpoint = self
                 .db
                 .endpoint_by_id(run.workspace_id, run.assessment_id, endpoint_id)
                 .await?;
-            let url = format!(
+            start_url = Some(format!(
                 "{}://{}:{}{}",
                 endpoint.scheme, endpoint.host, endpoint.port, endpoint.path
-            );
-            let (_, decision) = self
-                .authorize_url(run, &url, ActionClass::Query, TargetRole::TestTarget)
-                .await?;
-            if !decision.allowed {
-                return Err(ExecError::Blocked(format!(
-                    "flow step {} denied by {}",
-                    step_def.ordinal, decision.rule
-                )));
-            }
-            steps.push(json!({
-                "ordinal": step_def.ordinal,
-                "intent": step_def.intent,
-                "expected_result": step_def.expected_result,
-                "method": "GET",
-                "url": url,
-            }));
-        }
-        if steps.is_empty() {
-            return Err(ExecError::Invalid(
-                "flow has no endpoint steps to reproduce".into(),
             ));
         }
-        if !self
-            .db
-            .reserve_budget(run.id, "browser_steps", steps.len() as i64)
-            .await?
-        {
-            return Err(ExecError::Blocked("budget_exhausted: browser_steps".into()));
+        let Some(start_url) = start_url else {
+            return Err(ExecError::Blocked(
+                "flow has no recorded starting URL".into(),
+            ));
+        };
+        let opened = self
+            .browser_open(
+                run,
+                &json!({
+                    "url": start_url,
+                    "identity_id": identity_id,
+                    "tenant": flow.tenant_key,
+                }),
+            )
+            .await?;
+        let status = opened
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or("error");
+        if status != "ok" {
+            self.db
+                .update_flow_observation(flow_id, FlowState::Blocked, &[], &[])
+                .await?;
+            return Ok(Outcome::blocked(
+                "flow_session_blocked",
+                opened
+                    .get("summary")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("flow session could not be opened"),
+            ));
         }
-        let base_url = steps
-            .first()
-            .and_then(|v| v.get("url"))
-            .and_then(|v| v.as_str())
-            .and_then(|v| Url::parse(v).ok())
-            .map(|u| {
-                format!(
-                    "{}://{}:{}",
-                    u.scheme(),
-                    u.host_str().unwrap_or(""),
-                    u.port_or_known_default().unwrap_or(80)
-                )
-            })
-            .unwrap_or_default();
-        let payload = json!({
-            "identity": {
-                "label": identity.label,
-                "role": identity.role_label,
-                "tenant_keys": identity.tenant_keys,
-                "secret_ref": identity.secret_ref,
-            },
-            "tenant": flow.tenant_key,
-            "base_url": base_url,
-            "login_path": operation_str(step, "login_path").unwrap_or("/login"),
-            "username": operation_str(step, "username").unwrap_or(&identity.label),
-            "flow": { "id": flow.id, "name": flow.name },
-            "steps": steps,
-        });
-        let result = self
-            .browser_call(run, step, "browser.flow", &payload, cancelled)
-            .await?;
-        let (outcome, evidence_ids) = self
-            .apply_browser_payload(run, step, Some(identity_id), &result.payload)
-            .await?;
-        let confirmed: Vec<i64> = result
-            .payload
-            .get("steps")
-            .and_then(|v| v.as_array())
+        let context_key = opened
+            .get("session")
+            .and_then(|value| value.get("context_key"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("")
+            .to_string();
+        let mut evidence_ids: Vec<EvidenceId> = opened
+            .get("evidence_ids")
+            .and_then(|value| value.as_array())
             .map(|items| {
                 items
                     .iter()
-                    .filter(|item| {
-                        item.get("confirmed")
-                            .and_then(|v| v.as_bool())
-                            .unwrap_or(false)
-                    })
-                    .filter_map(|item| item.get("ordinal").and_then(|v| v.as_i64()))
+                    .filter_map(|value| value.as_str())
+                    .filter_map(|value| value.parse().ok())
                     .collect()
             })
             .unwrap_or_default();
-        let state = match outcome.state {
-            StepOutcomeState::Succeeded => FlowState::Reproduced,
-            StepOutcomeState::Blocked => FlowState::Blocked,
-            _ => FlowState::Observed,
+        let mut confirmed = Vec::new();
+        let mut failed_reason = None;
+        for item in &flow.steps {
+            let action = &item.action_json;
+            let kind = action
+                .get("type")
+                .or_else(|| action.get("kind"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("click");
+            if kind == "open" || action.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                if item.confirmed {
+                    confirmed.push(item.ordinal);
+                }
+                continue;
+            }
+            let result = if kind == "login" {
+                self.browser_command(run, &context_key, "login", &json!({ "login": {} }))
+                    .await?
+            } else {
+                self.browser_command(run, &context_key, "act", &json!({ "action": action }))
+                    .await?
+            };
+            if let Some(ids) = result
+                .get("evidence_ids")
+                .and_then(|value| value.as_array())
+            {
+                evidence_ids.extend(
+                    ids.iter()
+                        .filter_map(|value| value.as_str())
+                        .filter_map(|value| value.parse::<EvidenceId>().ok()),
+                );
+            }
+            let result_status = result
+                .get("status")
+                .and_then(|value| value.as_str())
+                .unwrap_or("error");
+            if result_status == "blocked" || result_status == "outcome_unknown" {
+                failed_reason = Some(format!(
+                    "step {} could not be confirmed: {}",
+                    item.ordinal,
+                    result
+                        .get("summary")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("blocked")
+                ));
+                break;
+            }
+            let observation = result.get("observation").cloned().unwrap_or(Value::Null);
+            let observed_text = observation
+                .get("text")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let observed_url = observation
+                .get("url")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let expectation = item.expected_result.trim();
+            let matched = if matches!(
+                kind,
+                "click" | "fill" | "select" | "wait" | "scroll" | "press" | "back"
+            ) {
+                true
+            } else {
+                expectation.is_empty()
+                    || observed_text.contains(expectation)
+                    || observed_url.contains(expectation)
+            };
+            if matched {
+                confirmed.push(item.ordinal);
+            } else {
+                failed_reason = Some(format!(
+                    "step {} did not expose the recorded expected result",
+                    item.ordinal
+                ));
+            }
+        }
+        let _ = self.browser_close(run, &context_key).await;
+        let state = match &failed_reason {
+            None => FlowState::Reproduced,
+            Some(reason) => {
+                if reason.contains("login") || reason.contains("authenticated") {
+                    FlowState::Blocked
+                } else {
+                    FlowState::Observed
+                }
+            }
         };
         self.db
-            .update_flow_observation(flow.id, state, &evidence_ids, &confirmed)
+            .update_flow_observation(flow_id, state, &evidence_ids, &confirmed)
             .await?;
-        Ok(outcome)
+        let outcome_state = match state {
+            FlowState::Reproduced => StepOutcomeState::Succeeded,
+            FlowState::Blocked => StepOutcomeState::Blocked,
+            _ => StepOutcomeState::Failed,
+        };
+        Ok(Outcome {
+            state: outcome_state,
+            effect: EffectStatus::NotApplicable,
+            summary: match failed_reason {
+                Some(reason) => {
+                    format!("flow {flow_id} did not fully reproduce: {reason}")
+                }
+                None => format!(
+                    "flow {flow_id} reproduced with {}/{} confirmed steps in a real browser",
+                    confirmed.len(),
+                    flow.steps.len()
+                ),
+            },
+            result: json!({
+                "flow_id": flow_id,
+                "confirmed": confirmed,
+                "evidence_ids": evidence_ids,
+                "state": state,
+                "identity": identity.label,
+            }),
+        })
     }
 
     pub(crate) async fn browser_call(

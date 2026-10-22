@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 async-trait = "0.1"
+base64 = "0.22"
 chrono.workspace = true
 darkbox-contracts.workspace = true
 darkbox-domain.workspace = true

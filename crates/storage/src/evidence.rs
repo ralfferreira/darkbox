@@ -116,6 +116,34 @@ impl Db {
         rows.iter().map(map_json).collect()
     }
 
+    pub async fn list_evidence_for_run(
+        &self,
+        workspace_id: WorkspaceId,
+        assessment_id: AssessmentId,
+        run_id: RunId,
+        limit: i64,
+    ) -> Result<Vec<EvidenceDto>> {
+        let rows = sqlx::query(
+            "SELECT jsonb_build_object(
+                'id', e.id, 'assessment_id', e.assessment_id, 'kind', e.kind,
+                'classification', e.classification, 'sha256', e.sha256, 'size_bytes', e.size_bytes,
+                'truncated', e.truncated, 'sanitized', e.sanitized, 'content_type', e.content_type,
+                'run_id', e.run_id, 'step_id', e.step_id, 'identity_id', e.identity_id,
+                'summary', e.summary, 'created_at', e.created_at, 'retention_until', e.retention_until,
+                'access_url', NULL
+             ) AS row FROM evidences e
+             WHERE e.workspace_id=$1 AND e.assessment_id=$2 AND e.run_id=$3
+             ORDER BY e.created_at DESC LIMIT $4",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(assessment_id.as_uuid())
+        .bind(run_id.as_uuid())
+        .bind(limit.clamp(1, 500))
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(map_json).collect()
+    }
+
     pub async fn evidence_workspace_of(
         &self,
         id: EvidenceId,

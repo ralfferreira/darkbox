@@ -59,7 +59,7 @@ impl Db {
         sqlx::query(
             "INSERT INTO flows (id, workspace_id, assessment_id, name, state, version, identity_id,
                 tenant_key, preconditions)
-             VALUES ($1,$2,$3,$4,'proposed',1,$5,$6,$7)",
+             VALUES ($1,$2,$3,$4,$7,1,$5,$6,$8)",
         )
         .bind(id.as_uuid())
         .bind(workspace_id.as_uuid())
@@ -67,6 +67,7 @@ impl Db {
         .bind(&req.name)
         .bind(req.identity_id.map(|i| i.as_uuid()))
         .bind(&req.tenant_key)
+        .bind(req.state.unwrap_or(FlowState::Proposed).as_str())
         .bind(serde_json::to_value(&req.preconditions)?)
         .execute(&mut *tx)
         .await?;
@@ -87,8 +88,8 @@ impl Db {
             .execute(&mut *tx)
             .await?;
             sqlx::query(
-                "INSERT INTO flow_steps (flow_id, ordinal, action_id, intent, expected_result, endpoint_id)
-                 VALUES ($1,$2,$3,$4,$5,$6)",
+                "INSERT INTO flow_steps (flow_id, ordinal, action_id, intent, expected_result, endpoint_id, confirmed, action_json)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
             )
             .bind(id.as_uuid())
             .bind(index as i32)
@@ -96,6 +97,18 @@ impl Db {
             .bind(&step.intent)
             .bind(&step.expected_result)
             .bind(step.endpoint_id.map(|e| e.as_uuid()))
+            .bind(step.confirmed)
+            .bind(if step.action_json.is_null() { serde_json::json!({}) } else { step.action_json.clone() })
+            .execute(&mut *tx)
+            .await?;
+        }
+        if !req.evidence_ids.is_empty() {
+            sqlx::query(
+                "UPDATE flows SET evidence_ids=$2, observed_at=CASE WHEN $3::text IN ('reproduced','observed') THEN now() ELSE observed_at END WHERE id=$1",
+            )
+            .bind(id.as_uuid())
+            .bind(req.evidence_ids.iter().map(|id| id.as_uuid()).collect::<Vec<_>>())
+            .bind(req.state.unwrap_or(FlowState::Proposed).as_str())
             .execute(&mut *tx)
             .await?;
         }
@@ -128,7 +141,7 @@ impl Db {
                     SELECT jsonb_agg(jsonb_build_object(
                         'ordinal', s.ordinal, 'action_id', s.action_id, 'intent', s.intent,
                         'expected_result', s.expected_result, 'endpoint_id', s.endpoint_id,
-                        'confirmed', s.confirmed) ORDER BY s.ordinal)
+                        'confirmed', s.confirmed, 'action_json', s.action_json) ORDER BY s.ordinal)
                     FROM flow_steps s WHERE s.flow_id=f.id), '[]'),
                 'evidence_ids', f.evidence_ids, 'preconditions', f.preconditions,
                 'observed_at', f.observed_at, 'recorded_at', f.recorded_at
@@ -156,7 +169,7 @@ impl Db {
                     SELECT jsonb_agg(jsonb_build_object(
                         'ordinal', s.ordinal, 'action_id', s.action_id, 'intent', s.intent,
                         'expected_result', s.expected_result, 'endpoint_id', s.endpoint_id,
-                        'confirmed', s.confirmed) ORDER BY s.ordinal)
+                        'confirmed', s.confirmed, 'action_json', s.action_json) ORDER BY s.ordinal)
                     FROM flow_steps s WHERE s.flow_id=f.id), '[]'),
                 'evidence_ids', f.evidence_ids, 'preconditions', f.preconditions,
                 'observed_at', f.observed_at, 'recorded_at', f.recorded_at

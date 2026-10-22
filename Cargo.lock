@@ -544,6 +544,7 @@ name = "darkbox-execution"
 version = "0.3.0"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "darkbox-contracts",
  "darkbox-domain",

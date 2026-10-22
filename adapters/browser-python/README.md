@@ -1,26 +1,48 @@
 # DarkBox browser adapter
 
-One request per process. The Rust supervisor writes one JSON line to stdin and
-reads versioned JSON lines from stdout. Diagnostics go to stderr.
+The adapter has two contracts.
+
+## Interactive host
 
 ```sh
-printf '%s\n' '{"schema_version":1,"request_id":"r1","kind":"browser.session","payload":{"identity":{"label":"alice","secret_ref":"env:LAB_ALICE_PASSWORD"},"tenant":"north","base_url":"http://127.0.0.1:8080","login_path":"/login"}}' \
-  | LAB_ALICE_PASSWORD=alice-lab-pass python3 adapter.py --mode mock
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+.venv/bin/playwright install chromium
+.venv/bin/python adapter.py --probe
+.venv/bin/python adapter.py --serve --host 127.0.0.1 --port 8791 --mode auto
 ```
 
-Modes:
+The Rust core normally starts this process itself. It owns Playwright and all
+browser contexts. Commands are versioned JSON sent to `/v1/command`:
 
-- `auto` uses Camoufox when importable and falls back to the deterministic HTTP client.
-- `mock` uses `urllib` with one cookie jar per identity. It performs real HTTP to
-  the synthetic lab, keeps identities isolated, and never returns cookie values.
-- `camoufox` is reserved for the pinned Camoufox integration. This build reports
-  a structured error instead of pretending a browser ran.
+```json
+{
+  "schema_version": 1,
+  "kind": "session.open",
+  "session_key": "ctx-demo",
+  "policy": {
+    "include_hosts": ["127.0.0.1"],
+    "allowed_ports": [8080],
+    "allowed_schemes": ["http"]
+  },
+  "payload": {
+    "identity": {"label": "alice", "secret_ref": "env:LAB_ALICE_PASSWORD"},
+    "tenant": "north",
+    "url": "http://127.0.0.1:8080/"
+  }
+}
+```
 
-Secrets are resolved from environment variables named by `secret_ref`
-(`env:LAB_ALICE_PASSWORD`). For the bundled synthetic lab only, the adapter
-falls back to the documented `alice-lab-pass` / `bob-lab-pass` values and logs
-that fallback to stderr.
+`/v1/capability` runs a JavaScript probe and reports the engine that actually
+started, its version, the executable and any Camoufox error. `/v1/abort` and
+`/v1/close` interrupt and close a context.
 
-The adapter never receives database access, the scope policy owner, or a shell.
-The supervisor enforces the timeout, output cap, cancellation and process-group
-kill.
+The `mock` mode is the legacy one-shot HTTP client. It is not a browser. The
+one-shot stdin/stdout contract remains for contract tests and legacy
+visibility comparison.
+
+Secrets are resolved from `env:NAME`; the value never appears in a request,
+stdout, stderr or evidence. Login success is confirmed from the rendered page.
+A 200 login page is not authentication.
+
+See `docs/adapters/browser.md` for the full protocol and policy enforcement.

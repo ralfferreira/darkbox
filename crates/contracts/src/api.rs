@@ -119,6 +119,7 @@ pub struct IdentityDto {
     pub tenant_keys: Vec<String>,
     pub capabilities: Vec<String>,
     pub has_secret_ref: bool,
+    pub login_config: serde_json::Value,
     pub session_state: String,
     pub session_expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -133,6 +134,17 @@ pub struct CreateIdentityRequest {
     #[serde(default)]
     pub capabilities: Vec<String>,
     pub secret_ref: Option<String>,
+    #[serde(default)]
+    pub login_config: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UpdateIdentityRequest {
+    pub role_label: Option<String>,
+    pub tenant_keys: Option<Vec<String>>,
+    pub capabilities: Option<Vec<String>>,
+    pub secret_ref: Option<Option<String>>,
+    pub login_config: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,6 +217,8 @@ pub struct FlowStepDto {
     pub expected_result: String,
     pub endpoint_id: Option<crate::EndpointId>,
     pub confirmed: bool,
+    #[serde(default)]
+    pub action_json: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -231,6 +245,10 @@ pub struct CreateFlowRequest {
     pub preconditions: Vec<String>,
     #[serde(default)]
     pub steps: Vec<CreateFlowStep>,
+    #[serde(default)]
+    pub state: Option<crate::FlowState>,
+    #[serde(default)]
+    pub evidence_ids: Vec<EvidenceId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -240,6 +258,10 @@ pub struct CreateFlowStep {
     pub endpoint_id: Option<crate::EndpointId>,
     #[serde(default)]
     pub action_class: Option<ActionClass>,
+    #[serde(default)]
+    pub action_json: serde_json::Value,
+    #[serde(default)]
+    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -274,6 +296,12 @@ pub struct AgentTurnRequest {
     pub max_steps: u32,
     #[serde(default = "default_agent_tokens")]
     pub token_budget: i64,
+    #[serde(default)]
+    pub continue_from: Option<RunId>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub start_url: Option<String>,
 }
 
 fn default_agent_steps() -> u32 {
@@ -288,6 +316,8 @@ fn default_agent_tokens() -> i64 {
 pub struct AgentTurnResponse {
     pub run: RunSummary,
     pub context: ContextPackageDto,
+    #[serde(default)]
+    pub start_url: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -298,11 +328,41 @@ pub struct AgentEventRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentUsageRequest {
+    #[serde(default = "default_usage_phase")]
+    pub phase: String,
+    #[serde(default)]
+    pub call_id: Option<String>,
+    #[serde(default)]
     pub input_tokens: i64,
+    #[serde(default)]
     pub output_tokens: i64,
+    #[serde(default)]
     pub total_tokens: i64,
     #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub usage_known: Option<bool>,
+}
+
+fn default_usage_phase() -> String {
+    "settle".into()
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentActionDto {
+    pub id: uuid::Uuid,
+    pub run_id: RunId,
+    pub session_id: Option<crate::BrowserSessionId>,
+    pub ordinal: i32,
+    pub kind: String,
+    pub action: serde_json::Value,
+    pub state: String,
+    pub effect_status: String,
+    pub summary: String,
+    pub observation: Option<serde_json::Value>,
+    pub evidence_ids: Vec<EvidenceId>,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -312,12 +372,20 @@ pub struct AgentFinishRequest {
     pub next_steps: Vec<String>,
     #[serde(default)]
     pub evidence_ids: Vec<EvidenceId>,
+    #[serde(default = "default_agent_outcome")]
+    pub outcome: String,
+}
+
+fn default_agent_outcome() -> String {
+    "succeeded".into()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AgentFinishResponse {
     pub run: RunSummary,
     pub page: MemoryPageDto,
+    #[serde(default)]
+    pub flow_id: Option<crate::FlowId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

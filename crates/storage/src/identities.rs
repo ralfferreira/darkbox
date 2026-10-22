@@ -13,8 +13,8 @@ impl Db {
     ) -> Result<IdentityId> {
         let id = IdentityId::new();
         sqlx::query(
-            "INSERT INTO identities (id, workspace_id, assessment_id, label, role_label, tenant_keys, capabilities, secret_ref)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+            "INSERT INTO identities (id, workspace_id, assessment_id, label, role_label, tenant_keys, capabilities, secret_ref, login_config)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
              ON CONFLICT (assessment_id, label) DO NOTHING",
         )
         .bind(id.as_uuid())
@@ -25,6 +25,11 @@ impl Db {
         .bind(serde_json::to_value(&req.tenant_keys)?)
         .bind(serde_json::to_value(&req.capabilities)?)
         .bind(&req.secret_ref)
+        .bind(if req.login_config.is_null() {
+            serde_json::json!({})
+        } else {
+            req.login_config.clone()
+        })
         .execute(&self.pool)
         .await?;
         let existing: Option<uuid::Uuid> = sqlx::query_scalar(
@@ -50,6 +55,7 @@ impl Db {
                 'id', i.id, 'label', i.label, 'role_label', i.role_label,
                 'tenant_keys', i.tenant_keys, 'capabilities', i.capabilities,
                 'has_secret_ref', i.secret_ref IS NOT NULL,
+                'login_config', i.login_config,
                 'session_state', COALESCE(s.state, 'unknown'),
                 'session_expires_at', s.expires_at,
                 'created_at', i.created_at
@@ -78,7 +84,8 @@ impl Db {
             "SELECT jsonb_build_object(
                 'id', i.id, 'workspace_id', i.workspace_id, 'assessment_id', i.assessment_id,
                 'label', i.label, 'role_label', i.role_label, 'tenant_keys', i.tenant_keys,
-                'capabilities', i.capabilities, 'secret_ref', i.secret_ref, 'created_at', i.created_at
+                'capabilities', i.capabilities, 'secret_ref', i.secret_ref,
+                'login_config', i.login_config, 'created_at', i.created_at
              ) AS row FROM identities i
              WHERE i.workspace_id=$1 AND i.assessment_id=$2 AND i.id=$3",
         )
@@ -89,6 +96,44 @@ impl Db {
         .await?
         .ok_or_else(|| DbError::NotFound("identity".into()))?;
         map_json(&row)
+    }
+
+    pub async fn update_identity(
+        &self,
+        workspace_id: WorkspaceId,
+        assessment_id: AssessmentId,
+        identity_id: IdentityId,
+        req: &UpdateIdentityRequest,
+    ) -> Result<()> {
+        let current = self
+            .get_identity(workspace_id, assessment_id, identity_id)
+            .await?;
+        sqlx::query(
+            "UPDATE identities SET role_label=$4, tenant_keys=$5, capabilities=$6,
+                secret_ref=$7, login_config=$8
+             WHERE workspace_id=$1 AND assessment_id=$2 AND id=$3",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(assessment_id.as_uuid())
+        .bind(identity_id.as_uuid())
+        .bind(req.role_label.as_deref().unwrap_or(&current.role_label))
+        .bind(serde_json::to_value(
+            req.tenant_keys.as_ref().unwrap_or(&current.tenant_keys),
+        )?)
+        .bind(serde_json::to_value(
+            req.capabilities.as_ref().unwrap_or(&current.capabilities),
+        )?)
+        .bind(match &req.secret_ref {
+            Some(value) => value.clone(),
+            None => current.secret_ref.clone(),
+        })
+        .bind(match &req.login_config {
+            Some(value) if !value.is_null() => value.clone(),
+            _ => current.login_config.clone(),
+        })
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn create_tenant(
@@ -150,10 +195,13 @@ impl Db {
         expires_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<BrowserSessionId> {
         let id = BrowserSessionId::new();
-        sqlx::query(
+        let row = sqlx::query(
             "INSERT INTO browser_sessions (id, workspace_id, assessment_id, identity_id, tenant_key,
                 context_key, state, expires_at)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+             ON CONFLICT (context_key) DO UPDATE SET state=EXCLUDED.state,
+                expires_at=EXCLUDED.expires_at, last_seen_at=now()
+             RETURNING id",
         )
         .bind(id.as_uuid())
         .bind(workspace_id.as_uuid())
@@ -163,9 +211,88 @@ impl Db {
         .bind(context_key)
         .bind(state)
         .bind(expires_at)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.try_get::<uuid::Uuid, _>("id")?.into())
+    }
+
+    pub async fn browser_session_by_context(
+        &self,
+        workspace_id: WorkspaceId,
+        assessment_id: AssessmentId,
+        context_key: &str,
+    ) -> Result<Option<darkbox_domain::BrowserSession>> {
+        let row = sqlx::query(
+            "SELECT jsonb_build_object(
+                'id', b.id, 'workspace_id', b.workspace_id, 'assessment_id', b.assessment_id,
+                'identity_id', b.identity_id, 'tenant_key', b.tenant_key,
+                'context_key', b.context_key, 'state', b.state, 'expires_at', b.expires_at,
+                'created_at', b.created_at, 'last_seen_at', b.last_seen_at
+             ) AS row FROM browser_sessions b
+             WHERE b.workspace_id=$1 AND b.assessment_id=$2 AND b.context_key=$3",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(assessment_id.as_uuid())
+        .bind(context_key)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| map_json(&row)).transpose()
+    }
+
+    pub async fn update_session_state(
+        &self,
+        workspace_id: WorkspaceId,
+        context_key: &str,
+        state: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE browser_sessions SET state=$3,
+                expires_at=CASE WHEN $3 <> 'authenticated' THEN expires_at ELSE expires_at END,
+                last_seen_at=now(), closed_at=CASE WHEN $3='closed' THEN now() ELSE closed_at END
+             WHERE workspace_id=$1 AND context_key=$2",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(context_key)
+        .bind(state)
         .execute(&self.pool)
         .await?;
-        Ok(id)
+        Ok(())
+    }
+
+    pub async fn update_session_engine(
+        &self,
+        workspace_id: WorkspaceId,
+        context_key: &str,
+        engine: &str,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE browser_sessions SET engine=$3, last_seen_at=now()
+             WHERE workspace_id=$1 AND context_key=$2",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(context_key)
+        .bind(engine)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_session_observation(
+        &self,
+        workspace_id: WorkspaceId,
+        context_key: &str,
+        observation: &serde_json::Value,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE browser_sessions SET last_observation=$3, last_seen_at=now()
+             WHERE workspace_id=$1 AND context_key=$2",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(context_key)
+        .bind(observation)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     pub async fn session_state(

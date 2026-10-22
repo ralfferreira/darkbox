@@ -92,6 +92,8 @@ pub struct TestIdentity {
     pub tenant_keys: Vec<String>,
     pub capabilities: Vec<String>,
     pub secret_ref: Option<String>,
+    #[serde(default)]
+    pub login_config: serde_json::Value,
     pub created_at: DateTime<Utc>,
 }
 

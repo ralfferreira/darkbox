@@ -1,8 +1,10 @@
 //! Run execution: leases, bounded external operations, evidence ingestion.
 
 mod adapters;
+mod agent_browser;
 pub mod bridge;
 mod browser;
+pub mod browser_runtime;
 mod http;
 mod procedures;
 
@@ -157,6 +159,7 @@ pub struct Executor {
     store: Arc<dyn BlobStore>,
     http: reqwest::Client,
     config: ExecutorConfig,
+    browser: Arc<browser_runtime::BrowserRuntime>,
 }
 
 impl Executor {
@@ -170,11 +173,13 @@ impl Executor {
             .user_agent("DarkBox/0.3 (authorized assessment)")
             .build()
             .map_err(|e| ExecError::Network(e.to_string()))?;
+        let browser = Arc::new(browser_runtime::BrowserRuntime::from_env(&config.repo_root));
         Ok(Self {
             db,
             store,
             http,
             config,
+            browser,
         })
     }
 
@@ -198,6 +203,10 @@ impl Executor {
 
     pub fn http(&self) -> &reqwest::Client {
         &self.http
+    }
+
+    pub fn browser_runtime(&self) -> &browser_runtime::BrowserRuntime {
+        self.browser.as_ref()
     }
 
     /// Claims and executes one step. Returns false when the queue is empty.
@@ -495,6 +504,55 @@ impl Executor {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn store_evidence_bytes(
+        &self,
+        run: &Run,
+        step_id: Option<StepId>,
+        identity_id: Option<IdentityId>,
+        kind: EvidenceKind,
+        summary: &str,
+        bytes: &[u8],
+        content_type: &str,
+    ) -> ExecResult<EvidenceId> {
+        if !self
+            .db
+            .reserve_budget(run.id, "artifact_bytes", bytes.len() as i64)
+            .await?
+        {
+            return Err(ExecError::Blocked(
+                "budget_exhausted: artifact_bytes".into(),
+            ));
+        }
+        let key = darkbox_evidence::opaque_key();
+        self.store.put(&key, bytes).await?;
+        let retention = self.db.workspace_retention(run.workspace_id).await?;
+        let id = self
+            .db
+            .insert_evidence(
+                run.workspace_id,
+                run.assessment_id,
+                darkbox_storage::NewEvidence {
+                    kind,
+                    classification: EvidenceClassification::Sanitized,
+                    object_key: key,
+                    sha256: darkbox_evidence::sha256_hex(bytes),
+                    size_bytes: bytes.len() as i64,
+                    truncated: false,
+                    sanitized: true,
+                    content_type: content_type.to_string(),
+                    run_id: Some(run.id),
+                    step_id,
+                    identity_id,
+                    summary: summary.to_string(),
+                    source: "browser".into(),
+                },
+                Some(retention),
+            )
+            .await?;
+        Ok(id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn add_observation(
         &self,
         run: &Run,
@@ -566,7 +624,8 @@ pub fn capabilities(config: &ExecutorConfig) -> Vec<Capability> {
     let python = which("python3");
     let adapter_script = config.repo_root.join("adapters/browser-python/adapter.py");
     let adapter_ready = python.is_some() && adapter_script.is_file();
-    let camoufox = std::env::var("DARKBOX_CAMOUFOX_AVAILABLE").is_ok();
+    let browser_mode = config_mode();
+    let interactive = adapter_ready && browser_mode != "mock";
     let mut capabilities = vec![
         Capability {
             id: "http.capture".into(),
@@ -614,18 +673,21 @@ pub fn capabilities(config: &ExecutorConfig) -> Vec<Capability> {
         Capability {
             id: "browser.session".into(),
             provider: "python-adapter".into(),
-            version: "0.3.0".into(),
-            state: if adapter_ready {
+            version: "0.4.0".into(),
+            state: if interactive {
                 CapabilityState::Available
             } else {
                 CapabilityState::Unavailable
             },
-            detail: if adapter_ready && camoufox {
-                "JSON Lines adapter with Camoufox available".into()
-            } else if adapter_ready {
-                "JSON Lines adapter in deterministic HTTP mode; Camoufox is not installed".into()
+            detail: if !adapter_ready {
+                "python3 or the adapter script is missing; interactive browser sessions are blocked"
+                    .into()
+            } else if browser_mode == "mock" {
+                "mock mode is an HTTP session client, not a browser; set DARKBOX_BROWSER_MODE=auto or playwright".into()
             } else {
-                "python3 or the adapter script is missing; browser flows are blocked".into()
+                format!(
+                    "interactive session host configured in {browser_mode} mode; the engine and JavaScript probe are reported by /v1/capabilities/browser"
+                )
             },
         },
         Capability {
@@ -666,4 +728,53 @@ fn which(binary: &str) -> Option<PathBuf> {
     std::env::split_paths(&path)
         .map(|dir| dir.join(binary))
         .find(|candidate| candidate.is_file())
+}
+
+fn config_mode() -> String {
+    std::env::var("DARKBOX_BROWSER_MODE").unwrap_or_else(|_| "auto".into())
+}
+
+impl Executor {
+    /// Runs a functional JavaScript probe against the real engine. A package
+    /// that merely imports is not proof that a browser works.
+    pub async fn browser_capability(&self) -> Capability {
+        match self.browser.capability().await {
+            Ok(info) => {
+                let engine = info
+                    .get("engine")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
+                let version = info
+                    .get("engine_version")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("unknown");
+                let javascript = info
+                    .get("javascript")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                Capability {
+                    id: "browser.session".into(),
+                    provider: engine.into(),
+                    version: version.into(),
+                    state: if javascript {
+                        CapabilityState::Available
+                    } else {
+                        CapabilityState::Unavailable
+                    },
+                    detail: format!(
+                        "interactive contexts with persistent cookies; JavaScript probe {}; requested mode {}",
+                        if javascript { "passed" } else { "failed" },
+                        self.browser.mode()
+                    ),
+                }
+            }
+            Err(error) => Capability {
+                id: "browser.session".into(),
+                provider: "python-adapter".into(),
+                version: "0.4.0".into(),
+                state: CapabilityState::Unavailable,
+                detail: error.to_string(),
+            },
+        }
+    }
 }
