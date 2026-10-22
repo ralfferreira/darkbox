@@ -13,9 +13,8 @@ Version 0.3.0. The implementation follows `SPEC.md` (kept outside this
 repository by the maintainer) and the milestone plan. The original acceptance
 harness covers AC-01 through AC-14; the session 1 harness adds real browser
 exploration, cancellation, continuation and outcome-unknown checks. The last
-session 1 local run passed 15 of 15 independent criteria; the report is in
-`artifacts/session1/report.json`. The real-provider criterion remains pending
-because the configured provider account reports insufficient balance.
+session 1 local run passed 20 of 20 criteria with a real model; the report is in
+`docs/acceptance/session1.json`.
 
 ## What it does
 
@@ -296,6 +295,9 @@ revokes future operations rather than expanding an existing run.
   not be installed against the system Python 3.9: `pyobjc-core` failed to build.
   The adapter reports that exact error and never labels Chromium as Camoufox.
   The engine, version and JavaScript probe are shown in **Capabilities**.
+- Structured observations, events and model input are sanitized. Screenshots are
+  not redacted; password fields are masked by the browser, but a page that
+  renders a secret in plain text would place it in an image.
 - A browser host lives in the API process. Restarting the API closes live
   contexts; the stored session becomes `unknown` or `lost`, never silently
   authenticated.
@@ -322,9 +324,11 @@ revokes future operations rather than expanding an existing run.
   the service reports `missing_model_key` and the UI disables the turn. The
   bundled mock exercises the tool loop without a provider.
 - Model calls are reserved before the provider request and settled against the
-  same call id. A retry never books the call twice. A provider that does not
-  report usage is shown as `usage not reported`, not as zero consumed tokens.
-  Monetary cost is enforced when per-million-token rates are configured.
+  same call id before the next call, and after finish, cancellation or provider
+  failure. A retry never books the call twice. A provider that does not report
+  usage is shown as `usage not reported`, not as zero consumed tokens. Monetary
+  cost is enforced when per-million-token rates are configured; the bundled
+  demonstration leaves the rates at zero.
 - The agent proposes; it cannot confirm a finding, bypass scope or execute a
   shell. A hypothesis created by the agent still needs evidence and human
   review.

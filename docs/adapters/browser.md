@@ -32,9 +32,18 @@ executable, user agent and any Camoufox import error.
 
 A session owns one `BrowserContext` per assessment, identity and tenant. Cookies,
 local storage and the current page survive between commands. Contexts never
-share a cookie jar. A request that is not allowed by `ScopePolicy` is aborted
-inside `context.route`, including subresources and redirects. Blocked requests
-are returned in the observation and in `browser_traffic`.
+share a cookie jar. Every request is checked inside `context.route` against the
+pinned policy and the current policy, including subresources, fetch/XHR and
+redirects. A request also carries an action class. A POST or other mutation is
+denied unless the current command's effect class is allowed by the policy, so
+method alone never authorizes a change. A scope version is pushed to open
+contexts with `session.policy`; the next request is denied. Blocked requests are
+returned in the observation and in `browser_traffic`.
+
+Each command receives a request grant. The grant is reserved from the aggregate
+budget before dispatch and the adapter blocks requests beyond it. The core
+settles the grant against the requests actually fired, refunding the unused
+part.
 
 The observation is semantic. It contains the current URL, title, headings, page
 text, tables, forms and interactive elements with stable `data-darkbox-ref`
@@ -43,7 +52,10 @@ coordinates or a pre-recorded selector script.
 
 `login` resolves `secret_ref` from the adapter environment (`env:NAME`). The
 secret is filled into the observed field and never appears in a request payload,
-model prompt, transcript, log or evidence. Success is not a 200 status: the
+model prompt, transcript, log or evidence. Login fields can be selected by CSS
+hint (`username_selector`, `password_selector`, `submit_selector`) or discovered
+from the rendered form. A hint that becomes stale after a configured navigation
+is discarded and rediscovered. Success is not a 200 status: the
 adapter checks that the password form disappeared, that the URL is not a login
 URL, and that a logout/success text/selector is visible. A remaining login form
 or an error string is `login_failed`. A page that changed without confirmation

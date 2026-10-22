@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-10-22T03:59:40.259896+00:00",
+  "criteria": [
+    {
+      "id": "ACCOUNT-01",
+      "title": "Usage settles before finish",
+      "status": "passed",
+      "detail": "finish settled the completed call before closing the run",
+      "evidence": [
+        "01a161c3-ad89-73e1-9678-fb25ccb83365"
+      ]
+    },
+    {
+      "id": "ACCOUNT-02",
+      "title": "Each completed call settles before the next",
+      "status": "passed",
+      "detail": "three model steps produced three settled usage records before completion",
+      "evidence": [
+        "01a161c3-addb-7141-9e14-d6a5791b5f38"
+      ]
+    },
+    {
+      "id": "ACCOUNT-03",
+      "title": "Duplicate settlement is idempotent",
+      "status": "passed",
+      "detail": "duplicate settle was idempotent",
+      "evidence": [
+        "01a161c3-ae21-769e-bb90-a1921e825893"
+      ]
+    },
+    {
+      "id": "ACCOUNT-04",
+      "title": "Provider failure remains visible",
+      "status": "passed",
+      "detail": "provider failure is visible and the reserved call is settled unknown",
+      "evidence": [
+        "01a161c3-ae4a-760a-be02-b93d59e903a6"
+      ]
+    },
+    {
+      "id": "ACCOUNT-05",
+      "title": "Cancellation settles the model call",
+      "status": "passed",
+      "detail": "cancellation interrupted the model call and settled it",
+      "evidence": [
+        "01a161c3-b653-7334-a3c1-8ce38441801f"
+      ]
+    },
+    {
+      "id": "ACCOUNT-06",
+      "title": "Model budget blocks another call",
+      "status": "passed",
+      "detail": "the second model call was refused by the aggregate budget",
+      "evidence": [
+        "01a161c3-bc9f-7088-800d-f9983e8cd5cd"
+      ]
+    }
+  ]
+}

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — session 1 correction round
+
+- Request-level browser policy: every request, including subresources,
+  fetch/XHR and redirects, is checked against the pinned and current policy. A
+  scope version is pushed to open contexts and revokes access.
+- Request grants reserved before dispatch and settled against requests actually
+  fired. A JavaScript burst stops at the aggregate budget.
+- Action intent persisted before dispatch with idempotency, effect class,
+  authorization and lease. Process-stop recovery marks unknown outcomes and the
+  operator reconciles them without a repeated effect.
+- Action class and effect authorization outside the model. POST mutations are
+  denied before dispatch unless the policy allows them.
+- Recursive sanitized projection for structured observations before storage,
+  events, progress, memory and model input.
+- Usage settlement before the next call and after finish, cancellation or
+  provider failure, with idempotent call ids and explicit unknown usage.
+- Structured replay assertions and a negative corrupt-data replay.
+- New acceptance criteria AC-17 to AC-20 plus a controlled-provider accounting
+  contract and a process-crash recovery test.
+
 ## Unreleased — session 1
 
 - Real interactive browser host on Playwright Chromium, with one persistent

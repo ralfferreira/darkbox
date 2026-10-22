@@ -84,6 +84,7 @@ takes up to five targets and uses `note` as the scrape objective.
 | POST | `/runs/{id}/agent/usage` | `{phase: reserve\|settle, call_id, tokens, model}` | `RunSummary` |
 | POST | `/runs/{id}/agent/finish` | `{summary, next_steps, evidence_ids, outcome}` | run, memory page and optional flow |
 | POST | `/runs/{id}/agent/abort` | `{reason}` | `RunSummary` |
+| POST | `/runs/{id}/agent/reconcile` | `{resolution: applied\|not_applied, note}` | `RunSummary` |
 | GET | `/runs/{id}/agent/checkpoint` | | objective, actions and persisted checkpoint |
 | POST | `/runs/{id}/browser/open` | `{url, identity_id, tenant, decision}` | action + observation + evidence |
 | GET | `/runs/{id}/browser/progress` | | run, actions, evidence, current page, model calls |
@@ -108,9 +109,25 @@ Repeating the same phase does not double count. Usage the provider does not
 report is stored as null with `usage_known=false`.
 
 `browser/*` routes are scoped to one agent objective. They reject a run that is
-not `running`. An action with `effect_status=outcome_unknown` moves the objective
-to `waiting_operator` and preserves a checkpoint; no further browser action is
-accepted until the operator reconciles it.
+not `running`. The action row is written before the browser call, with its
+authorization and lease, and is marked dispatched immediately before the
+request. A process that stops after dispatch leaves the action running; recovery
+marks it `outcome_unknown`, moves the objective to `waiting_operator` and
+preserves a checkpoint. No further browser action is accepted until the operator
+reconciles it. Reconciliation records `applied` or `not_applied`, clears
+`effect_unknown` and never repeats the action automatically.
+
+Every browser command carries a request grant. The core reserves it from the
+aggregate request budget before dispatch and settles it against the requests
+actually fired. A browser request that is not allowed by the pinned or current
+policy, or whose action class is not allowed, is aborted before it reaches the
+target.
+
+A successful agent finish needs evidence from the objective and a structured
+assertion (`text_contains`, `url_contains`, `table_row_contains` or
+`table_cell_equals`). The assertion is stored on the discovered flow and
+re-checked on replay. A replay that executes its actions but fails the assertion
+is not marked as reproduced.
 
 ## Event envelope
 

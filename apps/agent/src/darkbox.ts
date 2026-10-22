@@ -73,6 +73,7 @@ export class DarkBoxApi {
     nextSteps: string[],
     evidenceIds: string[],
     outcome = 'succeeded',
+    assertion?: Record<string, unknown>,
   ) {
     return this.post<{
       run: RunSummary;
@@ -83,15 +84,24 @@ export class DarkBoxApi {
       next_steps: nextSteps,
       evidence_ids: evidenceIds,
       outcome,
+      assertion,
     });
   }
 
-  async reserveUsage(runId: string, callId: string, model: string) {
+  async reserveUsage(
+    runId: string,
+    callId: string,
+    model: string,
+    estimatedInputTokens = 0,
+    estimatedOutputTokens = 0,
+  ) {
     return this.post<RunSummary>(`/v1/runs/${runId}/agent/usage`, {
       phase: 'reserve',
       call_id: callId,
       model,
       usage_known: false,
+      estimated_input_tokens: estimatedInputTokens,
+      estimated_output_tokens: estimatedOutputTokens,
     });
   }
 

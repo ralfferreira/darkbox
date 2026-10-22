@@ -16,6 +16,7 @@ interface PlannerResult {
   summary: string;
   observedResult: string;
   evidenceIds: string[];
+  assertion?: { kind: 'text_contains'; value: string };
 }
 
 export class PlannerStopped extends Error {}
@@ -309,5 +310,6 @@ export async function runDeterministicPlanner(input: PlannerInput): Promise<Plan
     summary: `Authenticated as ${identity.label}, opened the reports area, applied period ${period} with minimum margin ${margin}, and confirmed the rendered result.`,
     observedResult,
     evidenceIds: [...new Set(evidence)],
+    assertion: { kind: 'text_contains', value: statusLine },
   };
 }

@@ -16,6 +16,14 @@ export interface TurnState {
   lastTitle?: string;
   completed: string[];
   blocked: string[];
+  finishRequest?: {
+    outcome: 'succeeded' | 'partial' | 'blocked' | 'inconclusive';
+    summary: string;
+    observedResult?: string;
+    assertion?: Record<string, unknown>;
+    nextSteps: string[];
+    evidenceIds: string[];
+  };
 }
 
 const MAX_TOOL_CALLS = 24;
@@ -413,12 +421,22 @@ export function buildTools(
         outcome: z.enum(['succeeded', 'partial', 'blocked', 'inconclusive']),
         summary: z.string().min(1).max(4000),
         observed_result: z.string().max(2000).optional(),
+        assertion: z
+          .object({
+            kind: z.enum(['text_contains', 'url_contains', 'table_row_contains', 'table_cell_equals']),
+            value: z.string().min(1).max(1000),
+            row: z.string().max(300).optional(),
+            column: z.number().int().min(0).max(20).optional(),
+          })
+          .optional(),
         next_steps: z.array(z.string().max(500)).max(10).optional(),
         evidence_ids: z.array(z.string()).max(20).optional(),
       }),
-      execute: ({ outcome, summary, observed_result, next_steps, evidence_ids }) =>
-        guard('finish', { outcome, summary, observed_result, next_steps, evidence_ids }, async () => {
-          const ids = [...new Set([...(evidence_ids ?? []), ...state.evidenceIds])];
+      execute: ({ outcome, summary, observed_result, assertion, next_steps, evidence_ids }) =>
+        guard('finish', { outcome, summary, observed_result, assertion, next_steps, evidence_ids }, async () => {
+          const known = state.evidenceIds;
+          const requested = (evidence_ids ?? []).filter((id) => known.has(id));
+          const ids = [...new Set([...requested, ...known])];
           if (outcome === 'succeeded' && ids.length === 0) {
             return {
               error:
@@ -431,28 +449,31 @@ export function buildTools(
                 'a successful objective needs observed_result: quote the page text or table value that confirms the requested result',
             };
           }
-          const result = await api.finish(
-            runId,
-            observed_result
-              ? `${summary}\n\nObserved result: ${observed_result}`
-              : summary,
-            next_steps ?? [],
-            ids,
-            outcome,
-          );
+          if (outcome === 'succeeded' && !assertion) {
+            return {
+              error:
+                'a successful objective needs a structured assertion (kind + value) that the platform can re-check on replay',
+            };
+          }
           state.finished = true;
           state.summary = summary;
           state.outcome = outcome;
           state.nextSteps = next_steps ?? [];
-          state.memorySlug = result.page.slug;
+          state.finishRequest = {
+            outcome,
+            summary,
+            observedResult: observed_result,
+            assertion,
+            nextSteps: next_steps ?? [],
+            evidenceIds: ids,
+          };
           return {
             finished: true,
+            pending_finish: true,
             outcome,
-            run_id: result.run.id,
-            memory_slug: result.page.slug,
-            flow_id: result.flow_id,
             summary,
             observed_result,
+            assertion,
             next_steps: next_steps ?? [],
             evidence_ids: ids,
           };

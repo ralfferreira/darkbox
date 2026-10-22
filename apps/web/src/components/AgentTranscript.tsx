@@ -67,9 +67,13 @@ export function AgentTranscript({
 
         {agentEvents
           .filter((event) =>
-            ['agent.message', 'agent.tool_call', 'agent.tool_result', 'agent.finished'].includes(
-              event.event_type,
-            ),
+            [
+              'agent.message',
+              'agent.tool_call',
+              'agent.tool_result',
+              'agent.accounting_error',
+              'agent.finished',
+            ].includes(event.event_type),
           )
           .map((event) => {
             const payload = record(event.payload) ?? {};
@@ -112,6 +116,17 @@ export function AgentTranscript({
                       ))}
                     </div>
                   ) : null}
+                </div>
+              );
+            }
+            if (event.event_type === 'agent.accounting_error') {
+              return (
+                <div className="agent-step agent-step-error" key={event.event_id}>
+                  <div className="agent-step-head">
+                    <span className="agent-role mono">accounting error</span>
+                    <span className="agent-time mono">{formatRelative(event.occurred_at)}</span>
+                  </div>
+                  <p className="agent-tool-summary">{text(payload.error)}</p>
                 </div>
               );
             }

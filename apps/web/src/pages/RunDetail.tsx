@@ -6,6 +6,7 @@ import { isTerminalRun, type EventDto, type RunState } from '../api/types';
 import { AgentExploration } from '../components/AgentExploration';
 import { AgentTranscript } from '../components/AgentTranscript';
 import { AgentTurnDialog } from '../components/AgentTurnDialog';
+import { ReconcileDialog } from '../components/ReconcileDialog';
 import { CancelRunDialog, ResumeRunDialog } from '../components/RunControlDialogs';
 import { Status, LiveDot } from '../components/Status';
 import {
@@ -63,6 +64,7 @@ export function RunDetailPage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
   const [continueOpen, setContinueOpen] = useState(false);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
 
   const run = runQuery.data?.run;
   const progress = useAgentProgress(
@@ -556,6 +558,13 @@ export function RunDetailPage() {
 
       <CancelRunDialog open={cancelOpen} onClose={() => setCancelOpen(false)} run={run} />
       <ResumeRunDialog open={resumeOpen} onClose={() => setResumeOpen(false)} run={run} />
+      {id ? (
+        <ReconcileDialog
+          open={reconcileOpen}
+          onClose={() => setReconcileOpen(false)}
+          run={run}
+        />
+      ) : null}
       {id ? (
         <AgentTurnDialog
           open={continueOpen}

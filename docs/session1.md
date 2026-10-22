@@ -1,9 +1,11 @@
 # Session 1: real browser exploration
 
-Status: implemented and demonstrated locally with a real browser. The real-model
-acceptance criterion is **pending** because the configured provider account
-reports insufficient balance. The deterministic planner used for the functional
-demonstration is labelled and is not presented as a model.
+Status: implemented and demonstrated locally with a real browser and a real
+model. The session 1 harness passes 20 of 20 criteria, including the real-model
+turn. A correction round tightened policy and budget enforcement, action
+persistence and recovery, observation sanitization, usage settlement and replay
+verification. The deterministic planner remains a labelled test driver and is
+not presented as a model.
 
 ## What changed
 
@@ -135,12 +137,18 @@ The local run of `scripts/session1_acceptance.py` produced:
 | AC-13 continuation | passed: partial checkpoint plus prior actions in the new context |
 | AC-14 unknown external outcome | passed: effect applied once, `waiting_operator`, no retry accepted |
 | AC-15 local connectivity | passed: API, agent and browser answered |
-| AC-16 real model | **pending**: provider balance |
+| AC-16 real model | passed: DeepSeek `deepseek-flash` completed the objective and the lab oracle recorded the filtered report |
+| AC-17 request budget | passed: a 20-request JavaScript burst stopped at 8/8 requests |
+| AC-18 scope revocation | passed: a new scope version revoked reports in an open context; click and direct navigation blocked with zero hits |
+| AC-19 sanitization | passed: the lab sentinel did not reach the response, progress or events |
+| AC-20 replay negative | passed: actions executed but a deliberately corrupt report view failed the structured assertion |
 
 The discovered flow was also reproduced from persisted actions: 7 of 7 steps
 confirmed in a real browser session, with 14 evidence ids and state
 `reproduced`. The generated report is `artifacts/session1/report.json`, also committed as
-`docs/acceptance/session1.json`; the provider failure is
+`docs/acceptance/session1.json`. The accounting protocol is
+`docs/acceptance/session1-agent-contract.json`, the crash recovery proof is
+`docs/acceptance/session1-crash-recovery.json`, and the real-model record is
 `docs/acceptance/session1-real-model.json`. UI captures are
 `docs/screenshots/session1-live.png` and `docs/screenshots/session1-result.png`.
 
@@ -180,11 +188,49 @@ it. Local runs keep the loopback default. Evidence is in
   The failed run is `01a160e8-8ec3-701b-aa82-5e6c22b2ede2`; the provider
   request id was `8850bf36-6daa-4283-82fc-00a48d4ff832`.
 
+## Correction round
+
+The correction round added:
+
+- Request-level policy enforcement in the browser route handler. Every request,
+  including subresources, fetch/XHR and redirects, is checked against the pinned
+  and the current policy. A scope version is pushed to open contexts, and the
+  next request is denied.
+- A request grant reserved before dispatch and settled against the requests
+  actually fired. A JavaScript burst stops at the aggregate budget.
+- Action intent persisted before dispatch with an idempotency key, effect class,
+  authorization and lease. A crashed process leaves a running/dispatched action
+  that recovery marks `outcome_unknown`; the operator reconciles it and the
+  effect is not repeated.
+- Action class and effect authorization outside the model. A POST mutation is
+  denied before dispatch unless the policy allows the effect class. Login and
+  GET filter submissions keep working.
+- A recursive sanitized projection for structured observations before storage,
+  events, progress, memory and the model. Element refs survive; the sentinel
+  does not.
+- Usage settlement before the next model call and after finish, cancellation or
+  provider failure. Settling an already settled call is idempotent. Unknown
+  usage stays unknown, not zero.
+- Structured replay assertions. Action execution and result verification are
+  separate; a wrong rendered result fails the replay.
+- New acceptance criteria and a controlled provider contract test. The crash
+  recovery test kills a second API process after the lab applied an effect.
+
 ## Remaining limitations
 
-- The real-model criterion is pending. The AI SDK path is implemented, but the
-  configured account cannot pay for a call. The deterministic planner is not a
-  substitute for that criterion.
+- Screenshot evidence is not redacted. Password fields are masked by the
+  browser, but a page that renders a secret in plain text would place it in an
+  image. Text, structured observations, events and model input are sanitized;
+  images are not.
+- A POST request that is semantically a read-only query is classified as a
+  potential mutation and needs the policy to allow that effect class. Method
+  alone is not used as authorization, so this is conservative.
+- Monetary cost is enforced when per-million-token rates are configured. The
+  demonstration environment leaves the rates at zero, so the accounting
+  protocol proves reservation, settlement, idempotency and unknown usage, but
+  the real-model run records zero monetary cost.
+- The browser host is a child of the API process. Restarting the API loses live
+  contexts; recovery marks interrupted actions and preserves the checkpoint.
 - The browser host is a child of the API process. Restarting the API loses live
   contexts; stored sessions are marked lost/unknown rather than reused.
 - Screenshots are sanitized by exclusion rather than image redaction. Password
