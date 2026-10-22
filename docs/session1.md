@@ -213,3 +213,11 @@ Session 2 can build on:
 - The live exploration panel as the place to add richer evidence inspection.
 - The session 1 acceptance script as the regression gate before adding broader
   vulnerability procedures.
+
+## Commits
+
+- `a3a5e40` `feat(browser): add persistent interactive browser sessions`
+- `e152f8d` `feat(agent): explore applications through browser actions`
+- `2d6196b` `feat(web): show live exploration progress`
+- `e4861da` `docs: record session 1 acceptance and limits`
+- `d8636c7` `docs: refresh session 1 result capture`
