@@ -424,8 +424,23 @@ pub async fn cancel_run(
         .db
         .request_cancel(auth.workspace_id, id, reason, &auth.operator)
         .await?;
-    state.kick_worker();
-    Ok(Json(summary))
+    if summary.kind == RunKind::Agent {
+        let keys = state.db.agent_session_keys(id).await.unwrap_or_default();
+        tracing::info!(run = %id, sessions = keys.len(), "agent cancellation");
+        for key in &keys {
+            tracing::info!(run = %id, session = %key, "aborting browser context");
+            state.executor.browser_abort(key).await;
+        }
+        let _ = state
+            .db
+            .finalize_agent_cancel(auth.workspace_id, id, reason)
+            .await?;
+        let _ =
+            crate::routes::agent::save_checkpoint(&state, &auth, id, "cancelled by operator").await;
+    } else {
+        state.kick_worker();
+    }
+    Ok(Json(state.db.run_summary(auth.workspace_id, id).await?))
 }
 
 #[derive(Debug, Deserialize, Default)]

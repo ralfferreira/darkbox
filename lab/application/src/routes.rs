@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::auth::{self, AuthContext, AuthOutcome};
 use crate::pages;
-use crate::state::{App, SESSION_COOKIE, Tenant};
+use crate::state::{self, App, SESSION_COOKIE, Tenant};
 
 pub fn main_router(app: App) -> Router {
     Router::new()
@@ -25,6 +25,7 @@ pub fn main_router(app: App) -> Router {
         .route("/app", get(app_root))
         .route("/app/{tenant}", get(dashboard))
         .route("/app/{tenant}/reports", get(reports))
+        .route("/app/{tenant}/api/reports", get(api_reports))
         .route("/app/{tenant}/settings", get(settings))
         .route("/app/{tenant}/items", get(items))
         .route("/app/{tenant}/admin/forbidden", get(admin_forbidden))
@@ -32,8 +33,11 @@ pub fn main_router(app: App) -> Router {
         .route("/app/{tenant}/expire", get(expire))
         .route("/app/{tenant}/counter", post(counter))
         .route("/app/{tenant}/api/state", get(api_state))
+        .route("/app/{tenant}/effect-check", get(effect_check))
+        .route("/app/{tenant}/api/slow-effect", post(slow_effect))
         .route("/go/outside", get(go_outside))
         .route("/assets/app.js", get(app_js))
+        .route("/assets/reports.js", get(reports_js))
         .route("/secret-note.txt", get(secret_note))
         .route("/excluded", get(main_excluded))
         .route("/_lab/state", get(lab_state))
@@ -76,7 +80,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
     headers.insert(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(
-            "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+            "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
         ),
     );
     response
@@ -399,6 +403,46 @@ async fn api_state(
     .into_response()
 }
 
+async fn effect_check(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(tenant): Path<String>,
+) -> Response {
+    let tenant = match resolve_tenant(&tenant) {
+        Ok(tenant) => tenant,
+        Err(response) => return response,
+    };
+    if let Err(response) = require_auth(&app, &headers, tenant) {
+        return response;
+    }
+    html(StatusCode::OK, pages::effect_check(tenant))
+}
+
+async fn slow_effect(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(tenant): Path<String>,
+) -> Response {
+    let tenant = match resolve_tenant(&tenant) {
+        Ok(tenant) => tenant,
+        Err(response) => return response,
+    };
+    if let Err(response) = require_auth(&app, &headers, tenant) {
+        return response;
+    }
+    let effects = {
+        let mut state = app.lock();
+        let effects = state
+            .effects
+            .entry(tenant.as_str().to_string())
+            .or_insert(0);
+        *effects += 1;
+        *effects
+    };
+    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+    Json(json!({ "ok": true, "effects": effects })).into_response()
+}
+
 async fn go_outside(State(app): State<App>) -> Response {
     redirect(&format!("http://127.0.0.1:{}/excluded", app.excluded_port))
 }
@@ -408,6 +452,73 @@ async fn app_js() -> Response {
         StatusCode::OK,
         "text/javascript; charset=utf-8",
         pages::APP_JS.to_string(),
+    )
+}
+
+async fn api_reports(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(tenant): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    let tenant = match resolve_tenant(&tenant) {
+        Ok(tenant) => tenant,
+        Err(response) => return response,
+    };
+    let context = match require_auth(&app, &headers, tenant) {
+        Ok(context) => context,
+        Err(response) => return response,
+    };
+    if !context.user.role.is_admin() {
+        return Json(json!({ "error": "role_required" })).into_response();
+    }
+    let period = query.get("period").cloned().unwrap_or_else(|| "all".into());
+    if period != "all" && !["2026-07", "2026-08", "2026-09"].contains(&period.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "invalid_period" })),
+        )
+            .into_response();
+    }
+    let min_margin = query
+        .get("min_margin")
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(0.0)
+        .clamp(0.0, 100.0);
+    let rows: Vec<_> = state::REPORT_ROWS
+        .iter()
+        .filter(|row| period == "all" || row.period == period)
+        .filter(|row| row.margin >= min_margin)
+        .map(|row| {
+            json!({
+                "period": row.period,
+                "revenue": format!("${}.{:02}", row.revenue_cents / 100, row.revenue_cents % 100),
+                "margin": format!("{:.1}%", row.margin),
+                "margin_value": row.margin,
+            })
+        })
+        .collect();
+    let trace_id = app
+        .lock()
+        .record_report_query(tenant.as_str(), &period, min_margin, rows.len());
+    Json(json!({
+        "tenant": tenant.as_str(),
+        "period": period,
+        "min_margin": min_margin,
+        "rows": rows,
+        "row_count": rows.len(),
+        "total_rows": state::REPORT_ROWS.len(),
+        "trace_id": trace_id,
+        "rendered_at": chrono::Utc::now().to_rfc3339(),
+    }))
+    .into_response()
+}
+
+async fn reports_js() -> Response {
+    response_with_type(
+        StatusCode::OK,
+        "text/javascript; charset=utf-8",
+        pages::REPORTS_JS.to_string(),
     )
 }
 

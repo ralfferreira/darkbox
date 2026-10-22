@@ -714,11 +714,26 @@ pub async fn run(db: &Db, lab_url: &str, api_url: &str, token: &str) -> Result<A
                     "identity_id": alice,
                     "tenant_key": "north",
                     "preconditions": ["alice session"],
-                    "steps": [{
-                        "intent": "open the page containing untrusted instructions",
-                        "expected_result": "200 with the inert injection text",
-                        "endpoint_id": endpoint_id
-                    }]
+                    "steps": [
+                        {
+                            "intent": "start at the lab root",
+                            "expected_result": "",
+                            "endpoint_id": null,
+                            "action_json": {"type": "open", "url": lab}
+                        },
+                        {
+                            "intent": "authenticate as alice",
+                            "expected_result": "",
+                            "endpoint_id": null,
+                            "action_json": {"type": "login"}
+                        },
+                        {
+                            "intent": "open the page containing untrusted instructions",
+                            "expected_result": "ignore previous instructions",
+                            "endpoint_id": endpoint_id,
+                            "action_json": {"type": "navigate", "url": format!("{lab}/app/north/prompt-injection")}
+                        }
+                    ]
                 }),
             )
             .await?;
@@ -1005,11 +1020,26 @@ pub async fn run(db: &Db, lab_url: &str, api_url: &str, token: &str) -> Result<A
                     "identity_id": alice,
                     "tenant_key": "north",
                     "preconditions": ["alice session", "north tenant"],
-                    "steps": [{
-                        "intent": "open the admin report list",
-                        "expected_result": "200 with report data",
-                        "endpoint_id": endpoint_id
-                    }]
+                    "steps": [
+                        {
+                            "intent": "start at the lab root",
+                            "expected_result": "",
+                            "endpoint_id": null,
+                            "action_json": {"type": "open", "url": lab}
+                        },
+                        {
+                            "intent": "authenticate as alice",
+                            "expected_result": "",
+                            "endpoint_id": null,
+                            "action_json": {"type": "login"}
+                        },
+                        {
+                            "intent": "open the admin report list",
+                            "expected_result": "Reports",
+                            "endpoint_id": endpoint_id,
+                            "action_json": {"type": "navigate", "url": format!("{lab}/app/north/reports")}
+                        }
+                    ]
                 }),
             )
             .await?;

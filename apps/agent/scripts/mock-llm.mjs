@@ -1,5 +1,6 @@
-// Deterministic OpenAI-compatible model for local development. It calls
-// inventory_list once, then finish. No network and no provider key.
+// Deterministic OpenAI-compatible model for transport tests. It calls
+// identity_list once, then finishes as inconclusive. It is not a browser test
+// driver and is never presented as a model.
 import http from 'node:http';
 
 let calls = 0;
@@ -17,16 +18,17 @@ const server = http.createServer((request, response) => {
     const toolCall =
       calls === 1
         ? {
-            name: 'inventory_list',
-            arguments: { limit: 5 },
-            content: 'I will inspect the current inventory first.',
+            name: 'identity_list',
+            arguments: {},
+            content: 'I will inspect the configured identities first.',
           }
         : {
             name: 'finish',
             arguments: {
+              outcome: 'inconclusive',
               summary:
-                'Inventory inspected for the mock run. No target request was made by this step.',
-              next_steps: ['Review the candidate endpoints before observing them.'],
+                'The mock transport test did not run a browser objective. This is not a completed assessment.',
+              next_steps: ['Use the deterministic planner or a provider for a functional run.'],
               evidence_ids: [],
             },
             content: null,

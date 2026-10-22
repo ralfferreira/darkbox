@@ -116,7 +116,39 @@ async fn alice_logs_in_and_reads_reports() {
         .await
         .unwrap();
     assert_eq!(reports.status(), StatusCode::OK);
-    assert!(body_text(reports).await.contains("REPORT-CONFIDENTIAL"));
+    let reports_body = body_text(reports).await;
+    assert!(reports_body.contains("data-report-explorer"));
+    assert!(reports_body.contains("/assets/reports.js"));
+    assert!(!reports_body.contains("$43,900"));
+
+    let report_query = lab
+        .router
+        .clone()
+        .oneshot(request_with_cookie(
+            Method::GET,
+            "/app/north/api/reports?period=2026-08&min_margin=19",
+            &cookie,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(report_query.status(), StatusCode::OK);
+    let report = body_json(report_query).await;
+    assert_eq!(report["row_count"], 1);
+    assert_eq!(report["rows"][0]["period"], "2026-08");
+    assert_eq!(report["rows"][0]["margin"], "19.1%");
+    assert!(
+        report["trace_id"]
+            .as_str()
+            .unwrap()
+            .starts_with("rpt-north-")
+    );
+    assert_eq!(
+        lab.app.state_json()["report_queries"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     let settings = lab
         .router
@@ -157,7 +189,7 @@ async fn bob_is_denied_reports_and_south_and_has_no_report_link() {
     assert_eq!(reports.status(), StatusCode::FORBIDDEN);
     let reports_body = body_text(reports).await;
     assert!(reports_body.contains("Role required"));
-    assert!(!reports_body.contains("REPORT-CONFIDENTIAL"));
+    assert!(!reports_body.contains("data-report-explorer"));
 
     let south = lab
         .router

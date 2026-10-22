@@ -30,13 +30,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let lab_port = port_from_env("LAB_PORT", 8080);
     let excluded_port = port_from_env("EXCLUDED_PORT", 9099);
+    let bind = std::env::var("LAB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
     let app = App::new(lab_port, excluded_port);
 
-    let main_listener = tokio::net::TcpListener::bind(("127.0.0.1", lab_port)).await?;
-    let excluded_listener = tokio::net::TcpListener::bind(("127.0.0.1", excluded_port)).await?;
+    let main_listener = tokio::net::TcpListener::bind((bind.as_str(), lab_port)).await?;
+    let excluded_listener = tokio::net::TcpListener::bind((bind.as_str(), excluded_port)).await?;
 
-    tracing::info!(port = lab_port, "lab listener ready");
-    tracing::info!(port = excluded_port, "excluded listener ready");
+    tracing::info!(bind = %bind, port = lab_port, "lab listener ready");
+    tracing::info!(bind = %bind, port = excluded_port, "excluded listener ready");
 
     tokio::try_join!(
         axum::serve(main_listener, routes::main_router(app.clone())),

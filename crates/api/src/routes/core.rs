@@ -474,6 +474,30 @@ pub async fn create_identity(
         .ok_or_else(|| ApiError::not_found("identity"))
 }
 
+pub async fn update_identity(
+    State(state): State<AppState>,
+    Auth(auth): Auth,
+    Path((id, identity_id)): Path<(String, String)>,
+    Json(req): Json<UpdateIdentityRequest>,
+) -> Result<Json<IdentityDto>, ApiError> {
+    auth.require_write()?;
+    let assessment_id = parse_id::<AssessmentId>(&id)?;
+    let identity_id = parse_id::<IdentityId>(&identity_id)?;
+    state
+        .db
+        .update_identity(auth.workspace_id, assessment_id, identity_id, &req)
+        .await?;
+    let identities = state
+        .db
+        .list_identities(auth.workspace_id, assessment_id)
+        .await?;
+    identities
+        .into_iter()
+        .find(|identity| identity.id == identity_id)
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("identity"))
+}
+
 pub async fn list_tenants(
     State(state): State<AppState>,
     Auth(auth): Auth,

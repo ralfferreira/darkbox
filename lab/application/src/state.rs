@@ -75,6 +75,47 @@ pub struct TamperEntry {
     pub path: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct ReportQuery {
+    pub seq: u64,
+    pub tenant: String,
+    pub period: String,
+    pub min_margin: f64,
+    pub trace_id: String,
+    pub rows: usize,
+    pub at: DateTime<Utc>,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ReportRow {
+    pub period: &'static str,
+    pub revenue_cents: u32,
+    pub margin: f64,
+}
+
+pub const REPORT_ROWS: [ReportRow; 4] = [
+    ReportRow {
+        period: "2026-07",
+        revenue_cents: 4_120_000,
+        margin: 18.4,
+    },
+    ReportRow {
+        period: "2026-07",
+        revenue_cents: 1_840_000,
+        margin: 22.7,
+    },
+    ReportRow {
+        period: "2026-08",
+        revenue_cents: 4_390_000,
+        margin: 19.1,
+    },
+    ReportRow {
+        period: "2026-09",
+        revenue_cents: 4_630_000,
+        margin: 20.2,
+    },
+];
+
 pub struct LabState {
     pub users: Vec<User>,
     pub sessions: HashMap<String, Session>,
@@ -83,8 +124,10 @@ pub struct LabState {
     pub effects: BTreeMap<String, u64>,
     pub excluded_hits: u64,
     pub tamper_log: Vec<TamperEntry>,
+    pub report_queries: Vec<ReportQuery>,
     next_session: u64,
     next_tamper: u64,
+    next_report: u64,
 }
 
 impl LabState {
@@ -114,8 +157,10 @@ impl LabState {
             effects,
             excluded_hits: 0,
             tamper_log: Vec::new(),
+            report_queries: Vec::new(),
             next_session: 0,
             next_tamper: 0,
+            next_report: 0,
         }
     }
 
@@ -162,17 +207,46 @@ impl LabState {
         self.sessions.clear();
         self.excluded_hits = 0;
         self.tamper_log.clear();
+        self.report_queries.clear();
+        self.next_report = 0;
+    }
+
+    pub fn record_report_query(
+        &mut self,
+        tenant: &str,
+        period: &str,
+        min_margin: f64,
+        rows: usize,
+    ) -> String {
+        self.next_report += 1;
+        let trace_id = format!(
+            "rpt-{}-{:06}-{}",
+            tenant,
+            self.next_report,
+            Utc::now().timestamp_millis()
+        );
+        self.report_queries.push(ReportQuery {
+            seq: self.next_report,
+            tenant: tenant.to_string(),
+            period: period.to_string(),
+            min_margin,
+            trace_id: trace_id.clone(),
+            rows,
+            at: Utc::now(),
+        });
+        trace_id
     }
 
     pub fn state_json(&self) -> serde_json::Value {
         serde_json::json!({
-            "version": "lab-1",
+            "version": "lab-2",
             "hits": &self.hits,
             "total_hits": self.total_hits,
             "effects": &self.effects,
             "session_count": self.sessions.len(),
             "excluded_hits": self.excluded_hits,
             "tamper_log": &self.tamper_log,
+            "report_queries": &self.report_queries,
         })
     }
 }

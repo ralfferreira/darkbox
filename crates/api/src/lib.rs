@@ -276,6 +276,39 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/runs/{id}/agent/usage", post(routes::agent::usage))
         .route("/v1/runs/{id}/agent/finish", post(routes::agent::finish))
         .route("/v1/runs/{id}/agent/abort", post(routes::agent::abort))
+        .route(
+            "/v1/runs/{id}/agent/checkpoint",
+            get(routes::agent::checkpoint),
+        )
+        .route("/v1/runs/{id}/browser/open", post(routes::browser::open))
+        .route(
+            "/v1/runs/{id}/browser/navigate",
+            post(routes::browser::navigate),
+        )
+        .route(
+            "/v1/runs/{id}/browser/observe",
+            post(routes::browser::observe),
+        )
+        .route("/v1/runs/{id}/browser/act", post(routes::browser::act))
+        .route("/v1/runs/{id}/browser/login", post(routes::browser::login))
+        .route(
+            "/v1/runs/{id}/browser/screenshot",
+            post(routes::browser::screenshot),
+        )
+        .route(
+            "/v1/runs/{id}/browser/traffic",
+            post(routes::browser::traffic),
+        )
+        .route("/v1/runs/{id}/browser/close", post(routes::browser::close))
+        .route(
+            "/v1/runs/{id}/browser/progress",
+            get(routes::browser::progress),
+        )
+        .route(
+            "/v1/assessments/{id}/identities/{identity_id}",
+            post(routes::update_identity),
+        )
+        .route("/v1/capabilities/browser", get(routes::browser_capability))
         .route("/v1/assessments/{id}/inventory", get(routes::inventory))
         .route(
             "/v1/assessments/{id}/import-urls",

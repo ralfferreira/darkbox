@@ -279,9 +279,38 @@ async fn seed(db: &Db, lab_url: &str) -> Result<()> {
                 tenant_keys: vec!["north".into(), "south".into()],
                 capabilities: vec!["navigate".into(), "read".into()],
                 secret_ref: Some("env:LAB_ALICE_PASSWORD".into()),
+                login_config: serde_json::json!({
+                    "login_url": format!("{lab_url}/login"),
+                    "success_text": "Signed in as"
+                }),
             },
         )
         .await?;
+    }
+    for (label, secret_env, tenants) in [
+        ("alice", "LAB_ALICE_PASSWORD", vec!["north", "south"]),
+        ("bob", "LAB_BOB_PASSWORD", vec!["north"]),
+    ] {
+        if let Some(identity_id) = db.identity_by_label(assessment_id, label).await? {
+            let _ = db
+                .update_identity(
+                    workspace,
+                    assessment_id,
+                    identity_id,
+                    &UpdateIdentityRequest {
+                        role_label: None,
+                        tenant_keys: Some(tenants.into_iter().map(str::to_string).collect()),
+                        capabilities: None,
+                        secret_ref: Some(Some(format!("env:{secret_env}"))),
+                        login_config: Some(serde_json::json!({
+                            "login_url": format!("{lab_url}/login"),
+                            "success_text": "Signed in as",
+                            "failure_text": "Invalid credentials"
+                        })),
+                    },
+                )
+                .await;
+        }
     }
     if db.identity_by_label(assessment_id, "bob").await?.is_none() {
         db.create_identity(
@@ -293,6 +322,10 @@ async fn seed(db: &Db, lab_url: &str) -> Result<()> {
                 tenant_keys: vec!["north".into()],
                 capabilities: vec!["navigate".into(), "read".into()],
                 secret_ref: Some("env:LAB_BOB_PASSWORD".into()),
+                login_config: serde_json::json!({
+                    "login_url": format!("{lab_url}/login"),
+                    "success_text": "Signed in as"
+                }),
             },
         )
         .await?;

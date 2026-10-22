@@ -8,6 +8,7 @@ use serde_json::json;
 use crate::{ApiError, AppState, Auth};
 
 pub mod agent;
+pub mod browser;
 pub mod core;
 pub mod evidence;
 pub mod findings;
@@ -53,6 +54,13 @@ pub async fn capabilities(
         lab_url: state.config.lab_url.clone(),
         raw_evidence_enabled: state.config.raw_evidence_enabled,
     }))
+}
+
+pub async fn browser_capability(
+    State(state): State<AppState>,
+    Auth(_auth): Auth,
+) -> Json<Capability> {
+    Json(state.executor.browser_capability().await)
 }
 
 /// Serves the built single-page app for client-side routes. API paths are never

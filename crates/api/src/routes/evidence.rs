@@ -15,6 +15,7 @@ use crate::{ApiError, AppState, Auth, PrincipalPermissions, no_store};
 #[derive(Debug, Deserialize)]
 pub struct EvidenceParams {
     pub kind: Option<String>,
+    pub run_id: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
@@ -27,16 +28,24 @@ pub async fn list_evidence(
 ) -> Result<Json<Vec<EvidenceDto>>, ApiError> {
     let id = parse_id::<AssessmentId>(&id)?;
     state.db.assessment_summary(auth.workspace_id, id).await?;
-    let mut items = state
-        .db
-        .list_evidence(
-            auth.workspace_id,
-            id,
-            params.kind.as_deref(),
-            params.limit.unwrap_or(100),
-            params.offset.unwrap_or(0),
-        )
-        .await?;
+    let mut items = if let Some(run_id) = params.run_id.as_deref() {
+        let run_id = parse_id::<RunId>(run_id)?;
+        state
+            .db
+            .list_evidence_for_run(auth.workspace_id, id, run_id, params.limit.unwrap_or(300))
+            .await?
+    } else {
+        state
+            .db
+            .list_evidence(
+                auth.workspace_id,
+                id,
+                params.kind.as_deref(),
+                params.limit.unwrap_or(100),
+                params.offset.unwrap_or(0),
+            )
+            .await?
+    };
     for item in &mut items {
         item.access_url = Some(format!("/v1/evidence/{}/content", item.id));
     }
@@ -120,13 +129,20 @@ pub async fn evidence_content(
     for (name, value) in no_store() {
         response.headers_mut().insert(name, value);
     }
+    let content_type = record.content_type.clone();
+    let extension = if content_type.starts_with("image/") {
+        "jpg"
+    } else {
+        "txt"
+    };
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        header::HeaderValue::from_static("text/plain; charset=utf-8"),
+        header::HeaderValue::from_str(&content_type)
+            .unwrap_or_else(|_| header::HeaderValue::from_static("application/octet-stream")),
     );
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
-        header::HeaderValue::from_str(&format!("inline; filename=\"{id}.txt\""))
+        header::HeaderValue::from_str(&format!("inline; filename=\"{id}.{extension}\""))
             .unwrap_or_else(|_| header::HeaderValue::from_static("inline")),
     );
     Ok(response)
