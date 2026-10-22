@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import statistics
 import sys
 import threading
@@ -84,6 +85,46 @@ def agent(method, path, body=None, timeout=900):
 def lab_get(path):
     status, value, _ = http("GET", LAB + path, timeout=20)
     return value
+
+
+def oracle_baseline():
+    """Trace ids already recorded before an execution starts."""
+    return {
+        item.get("trace_id")
+        for item in lab_get("/_lab/state").get("report_queries", [])
+    }
+
+
+def correlated_filter_queries(run_id, baseline):
+    """New report queries for the filter, attributed to exactly this run.
+
+    The lab records the `X-Darkbox-Run` header sent by the browser context, so a
+    historical result from another run can never satisfy this execution.
+    """
+    matches = []
+    for item in lab_get("/_lab/state").get("report_queries", []):
+        if item.get("trace_id") in baseline:
+            continue
+        if item.get("run_id") != run_id:
+            continue
+        if item.get("period") != "2026-08":
+            continue
+        if abs(float(item.get("min_margin", 0)) - 19.0) >= 0.01:
+            continue
+        if item.get("rows") != 1:
+            continue
+        matches.append(item)
+    return matches
+
+
+def require_filter_result(run_id, baseline):
+    matches = correlated_filter_queries(run_id, baseline)
+    if not matches:
+        raise AssertionError(
+            "no report query for period 2026-08 with margin 19 and one row was "
+            f"attributed to run {run_id}"
+        )
+    return matches
 
 
 def wait_run(run_id, timeout=240):
@@ -275,6 +316,7 @@ def main():
         "2026-08 with minimum margin 19, and confirm that the displayed result matches "
         "the filter."
     )
+    baseline_main = oracle_baseline()
     accepted = agent(
         "POST",
         "/turns",
@@ -341,20 +383,11 @@ def main():
     def functional_result():
         if detail["run"]["state"] != "succeeded":
             raise AssertionError(f"objective ended as {detail['run']['state']}: {detail['run']['reason']}")
-        oracle = lab_get("/_lab/state")
-        matches = [
-            item
-            for item in oracle.get("report_queries", [])
-            if item.get("period") == "2026-08"
-            and abs(float(item.get("min_margin", 0)) - 19.0) < 0.01
-            and item.get("rows") == 1
-        ]
         if not filter_confirmed:
             raise AssertionError("the rendered observation did not contain the expected filter result")
-        if not matches:
-            raise AssertionError("the lab oracle did not record a JavaScript filter query with one row")
+        matches = require_filter_result(run_id, baseline_main)
         return (
-            "the rendered page and the independent lab oracle both show one row for 2026-08 / margin 19",
+            "the rendered page and the run-correlated lab oracle both show one row for 2026-08 / margin 19",
             [run_id, str(matches[-1].get("trace_id"))],
         )
 
@@ -652,13 +685,7 @@ def main():
         if not checkpoint.get("checkpoint"):
             raise AssertionError("no checkpoint persisted")
         effects_before = lab_get("/_lab/state")["effects"].get("north", 0)
-        before_queries = len(
-            [
-                item
-                for item in lab_get("/_lab/state").get("report_queries", [])
-                if item.get("period") == "2026-08"
-            ]
-        )
+        baseline_continue = oracle_baseline()
         result = agent(
             "POST",
             "/turns",
@@ -677,17 +704,10 @@ def main():
             raise AssertionError(f"continuation failed: {result['error']}")
         if result["run"]["state"] != "succeeded":
             raise AssertionError(f"continued objective ended as {result['run']['state']}")
-        oracle = lab_get("/_lab/state")
-        after_queries = len(
-            [
-                item
-                for item in oracle.get("report_queries", [])
-                if item.get("period") == "2026-08"
-            ]
-        )
-        if after_queries != before_queries + 1:
+        matched = require_filter_result(result["runId"], baseline_continue)
+        if len(matched) != 1:
             raise AssertionError("the continued session did not apply exactly one new filter query")
-        if oracle["effects"].get("north", 0) != effects_before:
+        if lab_get("/_lab/state")["effects"].get("north", 0) != effects_before:
             raise AssertionError("continuation repeated an effect")
         return (
             f"partial run {partial_id} persisted {len(checkpoint['actions'])} actions; a new model session completed the filter and added one query",
@@ -910,6 +930,8 @@ def main():
     def sanitized_observation():
         sanitize_aid, sanitize_identities = create_assessment("Sanitization lab")
         alice = sanitize_identities["alice"]
+        # A fresh random sentinel with no prefix the sanitizer could recognize.
+        sentinel = secrets.token_hex(10)
         run = api(
             "POST",
             f"/assessments/{sanitize_aid}/agent/turns",
@@ -930,23 +952,42 @@ def main():
         )
         key = opened["result"]["session"]["context_key"]
         api("POST", f"/runs/{rid}/browser/login", {"session_key": key, "login": {}})
+        target = (
+            LAB
+            + "/app/north/secret-surface?access_token="
+            + urllib.parse.quote(sentinel)
+        )
         navigated = api(
             "POST",
             f"/runs/{rid}/browser/navigate",
-            {"session_key": key, "url": LAB + "/app/north/secret-surface"},
+            {"session_key": key, "url": target},
         )
         progress = api("GET", f"/runs/{rid}/browser/progress")
         detail = api("GET", f"/runs/{rid}")
+        context = api(
+            "GET", f"/assessments/{sanitize_aid}/context?token_budget=4000"
+        )
         destinations = {
             "response": json.dumps(navigated),
             "progress": json.dumps(progress),
             "events": json.dumps(detail["events"]),
+            "memory_context": json.dumps(context),
         }
-        leaked = [name for name, text in destinations.items() if "LAB_SECRET_darkbox_7f3a" in text]
+        leaked = [name for name, text in destinations.items() if sentinel in text]
         if leaked:
             raise AssertionError(f"sentinel reached {leaked}")
+        # The field was observed and the value redacted, so the test is not
+        # passing just because the page was never seen.
+        observation = json.dumps(
+            [
+                (action.get("observation") or {})
+                for action in progress.get("actions", [])
+            ]
+        )
+        if "redacted" not in observation:
+            raise AssertionError("the sensitive field was not observed and redacted")
         return (
-            "the lab sentinel did not appear in the action response, progress or event stream",
+            "a fresh random sentinel in a sensitive field and URL parameter did not reach the response, progress, events or model context",
             [rid],
         )
 
@@ -1021,6 +1062,62 @@ def main():
 
     add(rows, "AC-20", "Replay verifies the result, not just action execution", replay_negative)
 
+    def oracle_isolation():
+        history = lab_get("/_lab/state").get("report_queries", [])
+        historical = [
+            item
+            for item in history
+            if item.get("period") == "2026-08" and item.get("rows") == 1
+        ]
+        if not historical:
+            raise AssertionError("no historical correct query to serve as a trap")
+        baseline = oracle_baseline()
+        run = api(
+            "POST",
+            f"/assessments/{aid}/agent/turns",
+            {
+                "objective": "Open reports but do not filter.",
+                "identity_id": identities["alice"],
+                "max_steps": 3,
+                "token_budget": 2000,
+                "start_url": LAB + "/",
+                "model": "acceptance-oracle-negative",
+            },
+        )
+        rid = run["run"]["id"]
+        opened = api(
+            "POST",
+            f"/runs/{rid}/browser/open",
+            {"url": LAB + "/", "identity_id": identities["alice"], "tenant": "north"},
+        )
+        key = opened["result"]["session"]["context_key"]
+        api("POST", f"/runs/{rid}/browser/login", {"session_key": key, "login": {}})
+        api(
+            "POST",
+            f"/runs/{rid}/browser/navigate",
+            {"session_key": key, "url": LAB + "/app/north/reports"},
+        )
+        api("POST", f"/runs/{rid}/cancel", {"reason": "oracle isolation negative"})
+        correlated = correlated_filter_queries(rid, baseline)
+        if correlated:
+            raise AssertionError(
+                "a run that did not filter was credited with a filter result"
+            )
+        try:
+            require_filter_result(rid, baseline)
+        except AssertionError:
+            pass
+        else:
+            raise AssertionError(
+                "the acceptance credited a historical result to a run that did not filter"
+            )
+        return (
+            "a correct historical result did not satisfy the acceptance for a run that skipped the filter",
+            [rid, historical[-1].get("trace_id", "")],
+        )
+
+    add(rows, "AC-21", "Oracle is isolated per execution", oracle_isolation)
+
     add(rows, "AC-15", "Local stack connectivity", connectivity)
 
     if args.real_model:
@@ -1030,6 +1127,7 @@ def main():
                 raise AssertionError(
                     "the agent service is in deterministic planner mode; start it with a provider"
                 )
+            baseline_real = oracle_baseline()
             result = agent(
                 "POST",
                 "/turns",
@@ -1063,20 +1161,13 @@ def main():
             elif result["run"]["state"] != "succeeded":
                 raise AssertionError(f"real model state {result['run']['state']}: {result['run']['reason']}")
             else:
-                oracle = lab_get("/_lab/state")
-                filtered = [
-                    item
-                    for item in oracle.get("report_queries", [])
-                    if item.get("period") == "2026-08" and item.get("rows") == 1
-                ]
-                if not filtered:
-                    raise AssertionError("real model run did not produce the independent filter oracle record")
+                filtered = require_filter_result(result["runId"], baseline_real)
                 rows.append(
                     {
                         "id": "AC-16",
                         "title": "Complete run with a real model",
                         "status": "passed",
-                        "detail": f"model run {result['runId']} succeeded and the lab oracle recorded the filtered report",
+                        "detail": f"model run {result['runId']} succeeded and the run-correlated lab oracle recorded the filtered report",
                         "evidence": [result["runId"], filtered[-1].get("trace_id", "")],
                     }
                 )

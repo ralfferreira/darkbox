@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased — session 1 closing correction round
+
+- Structured sanitization now reasons about keys and metadata: sensitive keys,
+  HTTP header pairs, sensitive form fields and sensitive URL query parameters
+  are redacted, while element refs and navigation data survive. The adapter also
+  removes secrets it resolved itself. The lab-specific prefix was removed and
+  the acceptance uses a fresh random sentinel.
+- A reported model cost above the run budget is persisted, not rolled back.
+  `spent_cost_micros` is capped, the excess is recorded in `overage_micros` and
+  per call, and `budget_blocked` refuses further model calls while tokens and
+  cost stay recorded.
+- The acceptance oracle is isolated per execution: a baseline plus the
+  `X-Darkbox-Run` header attributes a report query to the exact run, and a
+  historical correct result cannot satisfy a run that skipped the filter.
+- New regressions: `AC-21` oracle isolation, `ACCOUNT-07` cost overrun, the
+  `sanitize-regression.py` adapter test, and the Rust sanitizer tests including
+  one that reproduces the previous value-only leak.
+
 ## Unreleased — session 1 correction round
 
 - Request-level browser policy: every request, including subresources,

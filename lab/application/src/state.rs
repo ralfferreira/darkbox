@@ -83,6 +83,7 @@ pub struct ReportQuery {
     pub min_margin: f64,
     pub trace_id: String,
     pub rows: usize,
+    pub run_id: Option<String>,
     pub at: DateTime<Utc>,
 }
 
@@ -211,12 +212,14 @@ impl LabState {
         self.next_report = 0;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn record_report_query(
         &mut self,
         tenant: &str,
         period: &str,
         min_margin: f64,
         rows: usize,
+        run_id: Option<String>,
     ) -> String {
         self.next_report += 1;
         let trace_id = format!(
@@ -232,6 +235,7 @@ impl LabState {
             min_margin,
             trace_id: trace_id.clone(),
             rows,
+            run_id,
             at: Utc::now(),
         });
         trace_id

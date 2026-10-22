@@ -1,8 +1,8 @@
 # Session 1: real browser exploration
 
 Status: implemented and demonstrated locally with a real browser and a real
-model. The session 1 harness passes 20 of 20 criteria, including the real-model
-turn. A correction round tightened policy and budget enforcement, action
+model. The session 1 harness passes 21 of 21 criteria, including the real-model
+turn and an isolated per-execution oracle. A correction round tightened policy and budget enforcement, action
 persistence and recovery, observation sanitization, usage settlement and replay
 verification. The deterministic planner remains a labelled test driver and is
 not presented as a model.
@@ -137,19 +137,21 @@ The local run of `scripts/session1_acceptance.py` produced:
 | AC-13 continuation | passed: partial checkpoint plus prior actions in the new context |
 | AC-14 unknown external outcome | passed: effect applied once, `waiting_operator`, no retry accepted |
 | AC-15 local connectivity | passed: API, agent and browser answered |
-| AC-16 real model | passed: DeepSeek `deepseek-flash` completed the objective and the lab oracle recorded the filtered report |
+| AC-16 real model | passed: DeepSeek `deepseek-flash` completed the objective and the run-correlated lab oracle recorded the filtered report |
 | AC-17 request budget | passed: a 20-request JavaScript burst stopped at 8/8 requests |
 | AC-18 scope revocation | passed: a new scope version revoked reports in an open context; click and direct navigation blocked with zero hits |
-| AC-19 sanitization | passed: the lab sentinel did not reach the response, progress or events |
+| AC-19 sanitization | passed: a fresh random sentinel in a sensitive field and URL parameter did not reach the response, progress, events or model context |
 | AC-20 replay negative | passed: actions executed but a deliberately corrupt report view failed the structured assertion |
+| AC-21 oracle isolation | passed: a correct historical result did not satisfy the acceptance for a run that skipped the filter |
 
 The discovered flow was also reproduced from persisted actions: 7 of 7 steps
 confirmed in a real browser session, with 14 evidence ids and state
 `reproduced`. The generated report is `artifacts/session1/report.json`, also committed as
 `docs/acceptance/session1.json`. The accounting protocol is
 `docs/acceptance/session1-agent-contract.json`, the crash recovery proof is
-`docs/acceptance/session1-crash-recovery.json`, and the real-model record is
-`docs/acceptance/session1-real-model.json`. UI captures are
+`docs/acceptance/session1-crash-recovery.json`, the adapter sanitization
+regression is `docs/acceptance/session1-sanitize-regression.json`, and the
+real-model record is `docs/acceptance/session1-real-model.json`. UI captures are
 `docs/screenshots/session1-live.png` and `docs/screenshots/session1-result.png`.
 
 The legacy `darkbox verify` harness still covers its original criteria and
@@ -183,10 +185,12 @@ it. Local runs keep the loopback default. Evidence is in
   3.9.6 fails while building `pyobjc-core` (clang reports 16 errors). The
   probe returns `camoufox_error` and never reports Camoufox as the running
   engine.
-- Model: DeepSeek `deepseek-flash` over `https://api.deepseek.com/v1` was
-  attempted. The provider returned `Insufficient Balance` on the first call.
-  The failed run is `01a160e8-8ec3-701b-aa82-5e6c22b2ede2`; the provider
-  request id was `8850bf36-6daa-4283-82fc-00a48d4ff832`.
+- Model: DeepSeek `deepseek-flash` over `https://api.deepseek.com/v1` completed
+  the objective. The passing real-model run is
+  `01a161de-af70-7338-818b-d85a61b1e763` and the correlated report trace id is
+  `rpt-north-000009-1792643366122`. An earlier account returned
+  `Insufficient Balance` (request id `8850bf36-6daa-4283-82fc-00a48d4ff832`);
+  the funded key replaced it.
 
 ## Correction round
 
@@ -216,8 +220,41 @@ The correction round added:
 - New acceptance criteria and a controlled provider contract test. The crash
   recovery test kills a second API process after the lab applied an effect.
 
+## Closing correction round
+
+Three false security/acceptance signals were closed, each with a regression
+that reproduces the problem:
+
+- **Structured sanitization.** The projection now reasons about keys and
+  metadata instead of isolated values: sensitive keys (`password`, `token`,
+  `secret`, `api_key`, `session_id`, ...), HTTP header pairs
+  (`{"name":"Cookie","value":...}`), sensitive form fields marked by the
+  adapter, and sensitive URL query parameters are redacted, while element refs
+  and navigation data survive. The adapter also removes secrets it resolved
+  itself before the observation leaves the process, so those values never reach
+  the model. The lab-specific `LAB_SECRET_` pattern was removed; the acceptance
+  uses a fresh random sentinel with no recognizable prefix. Regressions:
+  `crates/evidence/src/sanitize.rs` (including a test that reproduces the old
+  value-only leak) and `scripts/sanitize_regression.py` for the adapter.
+- **Accounting above budget.** A real cost above the reservation and the run
+  budget is persisted, not rolled back. `spent_cost_micros` is capped at the
+  limit, the excess is recorded in `cost_overage_micros` and per call, and the
+  run is marked `budget_blocked` so no new model call is accepted. Tokens and
+  cost remain recorded after the block. Regression: `ACCOUNT-07` runs a
+  controlled provider with non-zero rates and a reported cost above the budget
+  (spent 10, overage 190, call cost 200, 200000 output tokens persisted).
+- **Isolated oracle.** The acceptance captures a baseline and attributes a
+  report query to the exact run through the `X-Darkbox-Run` header the browser
+  context sends. A historical correct result can no longer satisfy a run that
+  did not filter. Regression: `AC-21` keeps a correct historical query as a
+  trap and proves the acceptance fails for a run that skipped the filter.
+
 ## Remaining limitations
 
+- Structured observations, events and model input are sanitized by key,
+  metadata and known-secret value. An arbitrary secret rendered as unlabeled
+  free text is not detectable, and images are not redacted. The protection is
+  not a promise to find every secret in any text or screenshot.
 - Screenshot evidence is not redacted. Password fields are masked by the
   browser, but a page that renders a secret in plain text would place it in an
   image. Text, structured observations, events and model input are sanitized;
@@ -226,9 +263,9 @@ The correction round added:
   potential mutation and needs the policy to allow that effect class. Method
   alone is not used as authorization, so this is conservative.
 - Monetary cost is enforced when per-million-token rates are configured. The
-  demonstration environment leaves the rates at zero, so the accounting
-  protocol proves reservation, settlement, idempotency and unknown usage, but
-  the real-model run records zero monetary cost.
+  contract test runs its own API with non-zero rates and proves reservation,
+  settlement, overage and blocking; the interactive real-model run leaves the
+  rates at zero, so that run records token usage but zero monetary cost.
 - The browser host is a child of the API process. Restarting the API loses live
   contexts; recovery marks interrupted actions and preserves the checkpoint.
 - The browser host is a child of the API process. Restarting the API loses live

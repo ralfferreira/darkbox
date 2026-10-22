@@ -106,7 +106,13 @@ Allowed event types include `agent.message`, `agent.tool_call`,
 `POST /runs/{id}/agent/usage` has two phases. `reserve` books one model call and
 one `call_id`; `settle` records the real tokens and cost against that same row.
 Repeating the same phase does not double count. Usage the provider does not
-report is stored as null with `usage_known=false`.
+report is stored as null with `usage_known=false`. A reported cost above the run
+budget is not rolled back: `spent_cost_micros` is capped at the limit, the excess
+is recorded in `spent.overage_micros` and per call, and the run is marked
+`budget_blocked`, so the next `reserve` is refused. Tokens and cost stay
+recorded.
+
+`RunSummary.budget_blocked` and `BudgetSpent.overage_micros` expose this state.
 
 `browser/*` routes are scoped to one agent objective. They reject a run that is
 not `running`. The action row is written before the browser call, with its

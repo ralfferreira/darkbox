@@ -47,12 +47,18 @@ part.
 
 The observation is semantic. It contains the current URL, title, headings, page
 text, tables, forms and interactive elements with stable `data-darkbox-ref`
-references. Password values are never returned. The model receives refs, not
-coordinates or a pre-recorded selector script.
+references. Password values are never returned. Every input and form field
+carries a `field_name` and a `sensitive` flag; the adapter drops the value of a
+sensitive field before returning, so a token in a field named `token` never
+leaves the process. The browser context sends an `X-Darkbox-Run` header so a
+target can attribute a request to the exact execution. The model receives refs,
+not coordinates or a pre-recorded selector script.
 
 `login` resolves `secret_ref` from the adapter environment (`env:NAME`). The
-secret is filled into the observed field and never appears in a request payload,
-model prompt, transcript, log or evidence. Login fields can be selected by CSS
+secret is filled into the observed field, registered as a known secret for the
+session and removed from any observation, traffic or error before the response
+is sent, so it never appears in a request payload, model prompt, transcript, log
+or evidence. Login fields can be selected by CSS
 hint (`username_selector`, `password_selector`, `submit_selector`) or discovered
 from the rendered form. A hint that becomes stale after a configured navigation
 is discarded and rediscovered. Success is not a 200 status: the

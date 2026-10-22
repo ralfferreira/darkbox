@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-10-22T03:59:30.115844+00:00",
-  "assessment_id": "01a161c1-4d81-71d0-b327-9b0857b0bb60",
-  "planner_run_id": "01a161c1-4db9-76fe-8d60-109478b0a131",
+  "generated_at": "2026-10-22T04:29:34.473806+00:00",
+  "assessment_id": "01a161dc-cbe5-7334-b4dd-95daeb9658f6",
+  "planner_run_id": "01a161dc-cf27-77ff-8db3-3e26bf257f35",
   "lab": "http://127.0.0.1:8080",
   "api": "http://127.0.0.1:8787/v1",
   "agent": "http://127.0.0.1:8790",
@@ -22,17 +22,17 @@
       "status": "passed",
       "detail": "Reports was reached by clicking a visible link, not from a supplied route",
       "evidence": [
-        "01a161c1-4db9-76fe-8d60-109478b0a131"
+        "01a161dc-cf27-77ff-8db3-3e26bf257f35"
       ]
     },
     {
       "id": "AC-03",
       "title": "Filter interaction and functional result verified",
       "status": "passed",
-      "detail": "the rendered page and the independent lab oracle both show one row for 2026-08 / margin 19",
+      "detail": "the rendered page and the run-correlated lab oracle both show one row for 2026-08 / margin 19",
       "evidence": [
-        "01a161c1-4db9-76fe-8d60-109478b0a131",
-        "rpt-north-000002-1792641438383"
+        "01a161dc-cf27-77ff-8db3-3e26bf257f35",
+        "rpt-north-000002-1792643240698"
       ]
     },
     {
@@ -41,7 +41,7 @@
       "status": "passed",
       "detail": "7 actions used 1 browser context",
       "evidence": [
-        "ctx-01a161c1-4db9-76fe-8d60-109478b0a131-01a161c1-4d94-76cb-8dda-5ad31f5adf07-01a161c153a773719333214f78167d36"
+        "ctx-01a161dc-cf27-77ff-8db3-3e26bf257f35-01a161dc-cbfe-709e-9f84-4dd60faff3d7-01a161dcd78c76c8a5eb2957d2c16d24"
       ]
     },
     {
@@ -50,8 +50,8 @@
       "status": "passed",
       "detail": "alice and bob authenticated in two isolated contexts (2 keys)",
       "evidence": [
-        "ctx-01a161c1-b4a3-74c0-8a89-6a44662bbaff-01a161c1-4d94-76cb-8dda-5ad31f5adf07-01a161c1b4b977ce918a625af486e747",
-        "ctx-01a161c1-be80-721c-9e81-49e5140d1c30-01a161c1-4d98-723f-b425-e62415abb7a6-01a161c1be987101ab125cf8ce2649c5"
+        "ctx-01a161dd-3163-722f-878c-5a4c6c4d516b-01a161dc-cbfe-709e-9f84-4dd60faff3d7-01a161dd318371d1948b447f1e53138a",
+        "ctx-01a161dd-3b59-75a0-a6ff-2faf7988dc09-01a161dc-cc02-71e6-8959-d2aba4396712-01a161dd3b7c7181bac41e54fe3caed3"
       ]
     },
     {
@@ -60,7 +60,7 @@
       "status": "passed",
       "detail": "the portal fixture used /portal/signin with account/passphrase fields and CSS field hints",
       "evidence": [
-        "01a161c1-c891-70dd-8c76-f6f80832b2aa"
+        "01a161dd-4566-70e2-b531-61233e899cdf"
       ]
     },
     {
@@ -78,7 +78,7 @@
       "status": "passed",
       "detail": "rejected credentials produced login_failed, a blocked action and no authenticated session",
       "evidence": [
-        "01a161c1-d6a8-75c0-84d5-d006d023d265"
+        "01a161dd-536e-76f0-93c2-67e5fa26ef7b"
       ]
     },
     {
@@ -87,37 +87,37 @@
       "status": "passed",
       "detail": "a POST mutation was denied before dispatch; the target effect counter did not change",
       "evidence": [
-        "01a161c1-e07e-72e4-87b2-1765f0659c81"
+        "01a161dd-5d4a-75d7-99a2-61e4f489f03a"
       ]
     },
     {
       "id": "AC-10",
       "title": "Cancellation interrupts model and browser work",
       "status": "passed",
-      "detail": "cancel returned in 0.04s and stopped the in-flight browser action",
+      "detail": "cancel returned in 0.03s and stopped the in-flight browser action",
       "evidence": [
-        "01a161c1-ee73-737d-a4f0-dc87dcc10d09"
+        "01a161dd-6b5b-75e0-9233-581aed5dfa5f"
       ]
     },
     {
       "id": "AC-11",
       "title": "Evidence is linked and visual",
       "status": "passed",
-      "detail": "7 traces and 7 screenshots linked to 01a161c1-4db9-76fe-8d60-109478b0a131; screenshot served as image/jpeg",
+      "detail": "7 traces and 7 screenshots linked to 01a161dc-cf27-77ff-8db3-3e26bf257f35; screenshot served as image/jpeg",
       "evidence": [
-        "01a161c1-9f80-736e-a818-1b2a847d2f59",
-        "01a161c1-94a9-775d-91d6-f3afbb49b447",
-        "01a161c1-9f8b-740c-b925-aeae13905c46",
-        "01a161c1-94b7-72e5-9f71-0fb2c8fc58d5"
+        "01a161dd-1dc9-71b9-bf54-a212cdec9e8b",
+        "01a161dd-14f0-761e-81bd-dac4d6d8e2ca",
+        "01a161dd-1dd3-70d8-9e27-0205365281e2",
+        "01a161dd-14fb-727c-a411-c42a72d2c6c2"
       ]
     },
     {
       "id": "AC-12",
       "title": "Discovered flow is recorded",
       "status": "passed",
-      "detail": "flow 01a161c1-b3ea-7425-bba9-f304a216cc41 recorded 6 actions and a re-checkable assertion",
+      "detail": "flow 01a161dd-2fe0-75f1-8d1e-829ee6e8f8fe recorded 6 actions and a re-checkable assertion",
       "evidence": [
-        "01a161c1-b3ea-7425-bba9-f304a216cc41",
+        "01a161dd-2fe0-75f1-8d1e-829ee6e8f8fe",
         "{\"kind\": \"text_contains\", \"value\": \"1 of 4 report rows match period 2026-08 with margin at least 19.0%.\", \"row\": null, \"column\": null}"
       ]
     },
@@ -125,10 +125,10 @@
       "id": "AC-13",
       "title": "A new session continues from persisted state",
       "status": "passed",
-      "detail": "partial run 01a161c1-f720-720f-bf8c-e33b46ef9dd6 persisted 3 actions; a new model session completed the filter and added one query",
+      "detail": "partial run 01a161dd-743b-740f-9f99-248c8d2b909d persisted 3 actions; a new model session completed the filter and added one query",
       "evidence": [
-        "01a161c1-f720-720f-bf8c-e33b46ef9dd6",
-        "01a161c2-0529-7099-a8f7-3f61afdbffcc"
+        "01a161dd-743b-740f-9f99-248c8d2b909d",
+        "01a161dd-8270-77aa-bdd3-fde4c3fdf54e"
       ]
     },
     {
@@ -137,7 +137,7 @@
       "status": "passed",
       "detail": "effect applied once, outcome_unknown persisted, no retry accepted, operator reconciled",
       "evidence": [
-        "01a161c2-6b35-70ac-9c1c-bb141a7ac778"
+        "01a161dd-de98-77e2-9a51-eb450399d7d6"
       ]
     },
     {
@@ -146,7 +146,7 @@
       "status": "passed",
       "detail": "a 20-request browser burst stopped at the aggregate request budget (8/8)",
       "evidence": [
-        "01a161c2-eecc-7233-b3f0-24b94c06476a"
+        "01a161de-6247-7255-8b01-ed1360acf2ad"
       ]
     },
     {
@@ -155,16 +155,16 @@
       "status": "passed",
       "detail": "a scope version revoked reports in an open context; click and direct navigation were blocked with zero hits",
       "evidence": [
-        "01a161c2-ff1a-7318-b842-7e37fe9a46c5"
+        "01a161de-72bb-70dd-a966-8317867ba43e"
       ]
     },
     {
       "id": "AC-19",
       "title": "Structured observations are sanitized before use",
       "status": "passed",
-      "detail": "the lab sentinel did not appear in the action response, progress or event stream",
+      "detail": "a fresh random sentinel in a sensitive field and URL parameter did not reach the response, progress, events or model context",
       "evidence": [
-        "01a161c3-11a1-772a-ba7a-cb8804176b44"
+        "01a161de-84e4-70a6-b0c9-c5ad3e3cda62"
       ]
     },
     {
@@ -173,8 +173,18 @@
       "status": "passed",
       "detail": "actions executed but the corrupt report view failed the structured assertion",
       "evidence": [
-        "01a161c3-1fd6-7087-81ce-fb8b7e30e203",
-        "01a161c3-1fca-777a-bcad-64b2847e3f22"
+        "01a161de-9329-7581-9c13-c6d87d691a07",
+        "01a161de-931d-7583-ab7e-4d437c6e074b"
+      ]
+    },
+    {
+      "id": "AC-21",
+      "title": "Oracle is isolated per execution",
+      "status": "passed",
+      "detail": "a correct historical result did not satisfy the acceptance for a run that skipped the filter",
+      "evidence": [
+        "01a161de-a136-7362-93fd-4b84d4031de9",
+        "rpt-north-000005-1792643286446"
       ]
     },
     {
@@ -191,14 +201,14 @@
       "id": "AC-16",
       "title": "Complete run with a real model",
       "status": "passed",
-      "detail": "model run 01a161c3-2ddf-77cb-8e47-9a92cef40132 succeeded and the lab oracle recorded the filtered report",
+      "detail": "model run 01a161de-af70-7338-818b-d85a61b1e763 succeeded and the run-correlated lab oracle recorded the filtered report",
       "evidence": [
-        "01a161c3-2ddf-77cb-8e47-9a92cef40132",
-        "rpt-north-000008-1792641563043"
+        "01a161de-af70-7338-818b-d85a61b1e763",
+        "rpt-north-000009-1792643366122"
       ]
     }
   ],
-  "passed": 20,
+  "passed": 21,
   "failed": 0,
   "pending": 0
 }

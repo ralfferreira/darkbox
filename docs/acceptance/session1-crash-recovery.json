@@ -1,9 +1,9 @@
 {
   "status": "passed",
-  "run_id": "01a161c5-b375-7469-8cbb-fc490354ea39",
+  "run_id": "01a161df-41dc-7253-a115-00a6d9e18c99",
   "effect_count": 1,
   "actions": [
-    "01a161c5-c484-76c9-b11c-a2fc532bdb58"
+    "01a161df-52de-731d-b859-affeb795ed66"
   ],
   "detail": "process killed after the lab applied the effect; restart recovered outcome_unknown without repeating it"
 }

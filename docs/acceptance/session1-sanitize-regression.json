@@ -1,0 +1,21 @@
+{
+  "status": "passed",
+  "checks": [
+    {
+      "name": "sensitive field value",
+      "ok": true
+    },
+    {
+      "name": "sensitive URL parameter",
+      "ok": true
+    },
+    {
+      "name": "known secret value",
+      "ok": true
+    },
+    {
+      "name": "previous projection reproduced the leak",
+      "ok": true
+    }
+  ]
+}
