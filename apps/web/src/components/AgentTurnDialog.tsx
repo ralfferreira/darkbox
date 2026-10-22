@@ -6,16 +6,20 @@ import { Dialog } from './Dialog';
 import { Field, SelectInput, TextInput, Textarea } from './Form';
 import { useToast } from './Toast';
 
-const STEP_OPTIONS = [2, 4, 6];
+const STEP_OPTIONS = [3, 5, 8, 12];
 
 export function AgentTurnDialog({
   open,
   onClose,
   assessmentId,
+  continueFrom,
+  initialObjective,
 }: {
   open: boolean;
   onClose: () => void;
   assessmentId: string;
+  continueFrom?: string | null;
+  initialObjective?: string;
 }) {
   const identities = useIdentities(assessmentId);
   const navigate = useNavigate();
@@ -24,8 +28,9 @@ export function AgentTurnDialog({
   const uid = useId();
   const [objective, setObjective] = useState('');
   const [identityId, setIdentityId] = useState('');
-  const [maxSteps, setMaxSteps] = useState('4');
-  const [tokenBudget, setTokenBudget] = useState('4000');
+  const [startUrl, setStartUrl] = useState('');
+  const [maxSteps, setMaxSteps] = useState('8');
+  const [tokenBudget, setTokenBudget] = useState('6000');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<AgentHealth | null>(null);
@@ -33,10 +38,11 @@ export function AgentTurnDialog({
 
   useEffect(() => {
     if (!open) return;
-    setObjective('');
+    setObjective(initialObjective ?? '');
     setIdentityId('');
-    setMaxSteps('4');
-    setTokenBudget('4000');
+    setStartUrl('');
+    setMaxSteps('8');
+    setTokenBudget('6000');
     setError(null);
     setBusy(false);
     setHealth(null);
@@ -53,12 +59,12 @@ export function AgentTurnDialog({
         setHealthError(errorMessage(cause));
       });
     return () => controller.abort();
-  }, [open]);
+  }, [open, initialObjective]);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!objective.trim()) {
-      setError('Describe the objective for this turn.');
+      setError('Describe the observable result the objective must establish.');
       return;
     }
     setBusy(true);
@@ -68,12 +74,14 @@ export function AgentTurnDialog({
         assessment_id: assessmentId,
         objective: objective.trim(),
         identity_id: identityId || null,
-        max_steps: Number(maxSteps) || 4,
-        token_budget: Number(tokenBudget) || 4000,
+        max_steps: Number(maxSteps) || 8,
+        token_budget: Number(tokenBudget) || 6000,
+        start_url: startUrl.trim() || undefined,
+        continue_from: continueFrom ?? null,
       });
-      notify('Agent turn finished. Review the transcript and evidence.', 'success');
+      notify('Objective created. The live exploration view is open.', 'success');
       onClose();
-      navigate(`/assessments/${assessmentId}/runs/${response.run.id}`);
+      navigate(`/assessments/${assessmentId}/runs/${response.run_id}`);
     } catch (cause) {
       setError(errorMessage(cause));
       setBusy(false);
@@ -81,17 +89,18 @@ export function AgentTurnDialog({
   };
 
   const unavailable = Boolean(healthError) || health?.status === 'missing_model_key';
+  const planner = health?.planner === 'deterministic';
 
   return (
     <Dialog
       open={open}
-      onClose={busy ? () => undefined : onClose}
-      title="Ask the agent"
-      description="A bounded turn with typed tools. The agent can only call operations the platform mediates and can never open a shell."
+      onClose={onClose}
+      title={continueFrom ? 'Continue objective' : 'Ask the agent'}
+      description="One objective, one live browser session. The view opens immediately and updates while the agent works."
       size="md"
       footer={
         <>
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>
+          <button type="button" className="btn" onClick={onClose}>
             Cancel
           </button>
           <button
@@ -100,7 +109,7 @@ export function AgentTurnDialog({
             className="btn btn-primary"
             disabled={busy || unavailable || !objective.trim()}
           >
-            {busy ? 'Agent is working…' : 'Start turn'}
+            {busy ? 'Creating objective…' : 'Start exploration'}
           </button>
         </>
       }
@@ -109,11 +118,15 @@ export function AgentTurnDialog({
         <div className="notice" data-tone={unavailable ? 'amber' : undefined}>
           {health ? (
             <>
-              <span className="mono">agent · {health.model}</span>
+              <span className="mono">
+                {planner ? 'deterministic planner (labelled)' : health.model}
+                {health.planner ? ' · planner mode' : ''}
+              </span>
               <br />
               <span>
-                Ready at <span className="mono">{AGENT_URL}</span>. Up to {health.max_steps} model
-                steps per turn by default.
+                {planner
+                  ? 'No model provider is configured. This mode drives the same real browser loop and is labelled as deterministic in the run.'
+                  : `Provider ready at ${AGENT_URL}. Up to ${health.max_steps} model steps.`}
               </span>
             </>
           ) : healthError ? (
@@ -130,10 +143,20 @@ export function AgentTurnDialog({
           )}
         </div>
 
+        {continueFrom ? (
+          <div className="notice">
+            <strong>Continuing from a persisted checkpoint</strong>
+            <p>
+              The new objective receives the previous actions, observed URLs and evidence. It must
+              not repeat an effect whose outcome is unknown.
+            </p>
+          </div>
+        ) : null}
+
         <Field
           label="Objective"
           htmlFor={`${uid}-objective`}
-          hint="What should this turn establish or continue? Be specific and evidence-oriented."
+          hint="State the functional result and the confirmation you expect. Do not provide selectors, click sequences or internal routes."
         >
           <Textarea
             id={`${uid}-objective`}
@@ -141,12 +164,29 @@ export function AgentTurnDialog({
             onChange={(event) => setObjective(event.target.value)}
             rows={4}
             required
-            placeholder="Inspect the candidate endpoints, observe the most relevant one, and leave a checkpoint for the next session."
+            placeholder="Sign in with the configured identity, open the reports area, apply period 2026-08 with minimum margin 19, and confirm the displayed result."
+          />
+        </Field>
+
+        <Field
+          label="Starting URL"
+          htmlFor={`${uid}-start`}
+          hint="Only the entry point. Paths and controls must be discovered from the rendered page."
+        >
+          <TextInput
+            id={`${uid}-start`}
+            value={startUrl}
+            onChange={(event) => setStartUrl(event.target.value)}
+            placeholder="http://127.0.0.1:8080/"
           />
         </Field>
 
         <div className="form-grid two">
-          <Field label="Identity" htmlFor={`${uid}-identity`} hint="Optional. Isolates the session context.">
+          <Field
+            label="Identity"
+            htmlFor={`${uid}-identity`}
+            hint="Each identity gets its own browser context."
+          >
             <SelectInput
               id={`${uid}-identity`}
               value={identityId}
@@ -187,13 +227,6 @@ export function AgentTurnDialog({
             inputMode="numeric"
           />
         </Field>
-
-        {busy ? (
-          <p className="field-hint">
-            The turn may take up to two minutes. It is recorded as a run; closing this panel does
-            not cancel it.
-          </p>
-        ) : null}
 
         {error ? (
           <p className="form-error" role="alert">

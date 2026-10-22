@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Ban, RotateCw } from 'lucide-react';
-import { useEvidence, useResults, useRun } from '../api/queries';
+import { useAgentProgress, useResults, useRun, useRunEvidence } from '../api/queries';
 import { isTerminalRun, type EventDto, type RunState } from '../api/types';
+import { AgentExploration } from '../components/AgentExploration';
 import { AgentTranscript } from '../components/AgentTranscript';
+import { AgentTurnDialog } from '../components/AgentTurnDialog';
 import { CancelRunDialog, ResumeRunDialog } from '../components/RunControlDialogs';
 import { Status, LiveDot } from '../components/Status';
 import {
@@ -55,13 +57,26 @@ function eventsSorted(fetched: EventDto[], streamed: EventDto[]): EventDto[] {
 export function RunDetailPage() {
   const { id, runId } = useParams<{ id: string; runId: string }>();
   const runQuery = useRun(runId);
-  const evidence = useEvidence(id, '', 100);
+  const evidence = useRunEvidence(id, runId);
   const results = useResults(id, 50);
   const session = useCurrentSession();
   const [cancelOpen, setCancelOpen] = useState(false);
   const [resumeOpen, setResumeOpen] = useState(false);
+  const [continueOpen, setContinueOpen] = useState(false);
 
   const run = runQuery.data?.run;
+  const progress = useAgentProgress(
+    runId,
+    Boolean(run && run.kind === 'agent' && ['queued', 'running', 'cancelling'].includes(run.state)),
+    Boolean(run && run.kind === 'agent'),
+  );
+  useEffect(() => {
+    if (!run || run.kind !== 'agent') return;
+    if (!['queued', 'running', 'cancelling'].includes(run.state)) {
+      void progress.refetch();
+      void evidence.refetch();
+    }
+  }, [run?.state, run?.kind]);
   const runIsTerminal = run ? isTerminalRun(run.state) : false;
   const afterSeq = (runQuery.data?.events ?? []).reduce(
     (max, event) => Math.max(max, event.seq),
@@ -101,7 +116,10 @@ export function RunDetailPage() {
 
   const canWrite = session.data?.can_write ?? false;
   const steps = [...(runQuery.data?.steps ?? [])].sort((a, b) => a.ordinal - b.ordinal);
-  const runEvidence = (evidence.data ?? []).filter((item) => item.run_id === run.id);
+  const stepsDone = steps.filter((step) =>
+    ['succeeded', 'failed', 'skipped', 'blocked'].includes(step.state),
+  ).length;
+  const runEvidence = evidence.data ?? [];
   const evidenceIds = new Set(runEvidence.map((item) => item.id));
   const runResults = (results.data ?? []).filter((result) =>
     result.evidence_ids.some((evidenceId) => evidenceIds.has(evidenceId)),
@@ -182,6 +200,21 @@ export function RunDetailPage() {
                 Resume
               </button>
             ) : null}
+            {run.kind === 'agent' &&
+            (run.state === 'failed' ||
+              run.state === 'cancelled' ||
+              run.state === 'waiting_operator' ||
+              run.state === 'interrupted') ? (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setContinueOpen(true)}
+                disabled={!canWrite}
+                title="Continue from the persisted state in a new session."
+              >
+                Continue objective
+              </button>
+            ) : null}
             {CANCELLABLE.includes(run.state) ? (
               <button
                 type="button"
@@ -227,11 +260,24 @@ export function RunDetailPage() {
       ) : null}
 
       {run.kind === 'agent' ? (
-        <AgentTranscript
-          events={mergedEvents}
-          assessmentId={id}
-          state={run.state}
-        />
+        <>
+          <AgentExploration
+            run={run}
+            events={mergedEvents}
+            progress={progress.data}
+            evidence={runEvidence}
+          />
+          <AgentTranscript events={mergedEvents} assessmentId={id} state={run.state} />
+          {!runIsTerminal && run.state !== 'cancelling' ? (
+            <div className="notice">
+              <strong>The objective is not complete.</strong>
+              <p>
+                Cancelling stops new actions, aborts the model call and closes the browser context.
+                Work already captured stays available, and the checkpoint can seed a new session.
+              </p>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       <Panel title="Budget">
@@ -268,7 +314,7 @@ export function RunDetailPage() {
         <div className="split-main">
           <Panel
             title="Steps"
-            subtitle={`${run.steps_done} of ${run.step_count} complete`}
+            subtitle={`${stepsDone} of ${run.step_count} complete`}
             flush
           >
             {steps.length === 0 ? (
@@ -510,6 +556,26 @@ export function RunDetailPage() {
 
       <CancelRunDialog open={cancelOpen} onClose={() => setCancelOpen(false)} run={run} />
       <ResumeRunDialog open={resumeOpen} onClose={() => setResumeOpen(false)} run={run} />
+      {id ? (
+        <AgentTurnDialog
+          open={continueOpen}
+          onClose={() => setContinueOpen(false)}
+          assessmentId={id}
+          continueFrom={run.id}
+          initialObjective={
+            (() => {
+              const started = mergedEvents.find((event) => event.event_type === 'agent.started');
+              const value =
+                started && typeof started.payload === 'object' && started.payload !== null
+                  ? (started.payload as Record<string, unknown>).objective
+                  : '';
+              return typeof value === 'string'
+                ? `${value} Continue from the checkpoint; do not repeat an action whose outcome is unknown.`
+                : 'Continue from the persisted checkpoint.';
+            })()
+          }
+        />
+      ) : null}
     </>
   );
 }

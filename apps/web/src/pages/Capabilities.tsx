@@ -1,4 +1,4 @@
-import { useCapabilities } from '../api/queries';
+import { useBrowserCapability, useCapabilities } from '../api/queries';
 import { Status } from '../components/Status';
 import {
   EmptyState,
@@ -11,6 +11,7 @@ import {
 
 export function CapabilitiesPage() {
   const capabilities = useCapabilities();
+  const browser = useBrowserCapability();
 
   return (
     <>
@@ -64,6 +65,39 @@ export function CapabilitiesPage() {
               <EmptyState>No adapters are registered.</EmptyState>
             ) : null}
           </div>
+
+          <Panel
+            title="Functional browser probe"
+            subtitle="A real engine starts, executes JavaScript and reports its own name and version."
+            actions={
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => void browser.refetch()}
+              >
+                Run probe
+              </button>
+            }
+          >
+            {browser.isLoading ? (
+              <p className="mono quiet">starting the browser host and executing a JavaScript probe…</p>
+            ) : browser.isError ? (
+              <ErrorState
+                error={browser.error}
+                label="The browser probe did not pass."
+                onRetry={() => void browser.refetch()}
+              />
+            ) : browser.data ? (
+              <KeyValue
+                items={[
+                  { label: 'State', value: <Status value={browser.data.state} /> },
+                  { label: 'Engine', value: <span className="mono">{browser.data.provider}</span> },
+                  { label: 'Version', value: <span className="mono">{browser.data.version}</span> },
+                  { label: 'Detail', value: browser.data.detail },
+                ]}
+              />
+            ) : null}
+          </Panel>
 
           {capabilities.data ? (
             <Panel

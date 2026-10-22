@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { requestBlob } from '../api/client';
 import type { EvidenceDto } from '../api/types';
 import { useEvidenceContent } from '../api/queries';
 import { formatBytes, formatDateTime, shortHash, shortId } from '../lib/format';
@@ -17,21 +19,42 @@ export function EvidenceDrawer({
   assessmentId: string;
   onClose: () => void;
 }) {
-  const content = useEvidenceContent(evidence?.id ?? null);
+  const isImage = Boolean(evidence?.content_type.startsWith('image/'));
+  const content = useEvidenceContent(evidence && !isImage ? evidence.id : null);
+  const image = useQuery({
+    queryKey: ['evidence-image-drawer', evidence?.id],
+    queryFn: () => requestBlob(`/evidence/${evidence!.id}/content`),
+    enabled: Boolean(evidence && isImage),
+    staleTime: Infinity,
+    retry: false,
+  });
   const { notify } = useToast();
   const [downloading, setDownloading] = useState(false);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!image.data) {
+      setImageUrl(null);
+      return;
+    }
+    const next = URL.createObjectURL(image.data);
+    setImageUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [image.data]);
 
   if (!evidence) return null;
 
   const download = () => {
-    if (!content.data) return;
+    if (!content.data && !image.data) return;
     setDownloading(true);
     try {
-      const blob = new Blob([content.data], { type: 'text/plain;charset=utf-8' });
+      const blob = isImage
+        ? image.data!
+        : new Blob([content.data ?? ''], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `darkbox-evidence-${shortId(evidence.id)}.txt`;
+      link.download = `darkbox-evidence-${shortId(evidence.id)}.${isImage ? 'jpg' : 'txt'}`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -64,9 +87,9 @@ export function EvidenceDrawer({
             type="button"
             className="btn btn-primary"
             onClick={download}
-            disabled={!content.data || downloading}
+            disabled={(!content.data && !image.data) || downloading}
           >
-            {downloading ? 'Preparing…' : 'Download text'}
+            {downloading ? 'Preparing…' : isImage ? 'Download image' : 'Download text'}
           </button>
         </>
       }
@@ -88,7 +111,7 @@ export function EvidenceDrawer({
             </span>
           ) : null}
           <span className="badge" data-tone="neutral">
-            plain text only
+            {isImage ? 'image evidence' : 'text evidence'}
           </span>
         </div>
         <p className="drawer-note">{evidence.summary}</p>
@@ -155,7 +178,21 @@ export function EvidenceDrawer({
             stored portion only.
           </p>
         ) : null}
-        {content.isLoading ? (
+        {isImage ? (
+          image.isLoading ? (
+            <BlockSkeleton lines={6} />
+          ) : image.isError || !imageUrl ? (
+            <ErrorState
+              error={image.error}
+              label="Evidence image could not be loaded."
+              onRetry={() => void image.refetch()}
+            />
+          ) : (
+            <figure className="evidence-image">
+              <img src={imageUrl} alt={evidence.summary} />
+            </figure>
+          )
+        ) : content.isLoading ? (
           <BlockSkeleton lines={8} />
         ) : content.isError ? (
           <ErrorState

@@ -264,6 +264,7 @@ export interface IdentityDto {
   tenant_keys: string[];
   capabilities: string[];
   has_secret_ref: boolean;
+  login_config: JsonValue;
   session_state: string;
   session_expires_at: string | null;
   created_at: string;
@@ -275,6 +276,15 @@ export interface CreateIdentityRequest {
   tenant_keys: string[];
   capabilities: string[];
   secret_ref: string | null;
+  login_config?: JsonValue;
+}
+
+export interface UpdateIdentityRequest {
+  role_label?: string;
+  tenant_keys?: string[];
+  capabilities?: string[];
+  secret_ref?: string | null;
+  login_config?: JsonValue;
 }
 
 export interface TargetTenantDto {
@@ -361,6 +371,8 @@ export interface CreateFlowStep {
   expected_result: string;
   endpoint_id: Id | null;
   action_class: ActionClass | null;
+  action_json?: JsonValue;
+  confirmed?: boolean;
 }
 
 export interface CreateFlowRequest {
@@ -369,6 +381,8 @@ export interface CreateFlowRequest {
   tenant_key: string | null;
   preconditions: string[];
   steps: CreateFlowStep[];
+  state?: FlowState;
+  evidence_ids?: Id[];
 }
 
 export interface CreateActionRequest {
@@ -631,6 +645,50 @@ export interface CapabilitiesDto {
 }
 
 export interface AgentTurnResponse {
+  accepted: boolean;
+  run_id: string;
+  planner: string | null;
+  model: string;
+  run?: RunSummary;
+}
+
+export interface AgentActionDto {
+  id: Id;
+  run_id: Id;
+  session_id: Id | null;
+  ordinal: number;
+  kind: string;
+  action: JsonValue;
+  state: string;
+  effect_status: EffectStatus;
+  summary: string;
+  observation: JsonValue;
+  evidence_ids: Id[];
+  started_at: string;
+  finished_at: string | null;
+}
+
+export interface AgentProgress {
   run: RunSummary;
-  context: ContextPackageDto;
+  objective: JsonValue;
+  identity_id: Id | null;
+  actions: AgentActionDto[];
+  model_calls: Array<{
+    call_id: string;
+    model: string;
+    settled_at: string | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    total_tokens: number | null;
+    cost_micros: number | null;
+    usage_known: boolean;
+  }>;
+  evidence: EvidenceDto[];
+  current: {
+    url: JsonValue;
+    title: JsonValue;
+    observation: JsonValue;
+  };
+  pending: string;
+  blocked: string;
 }

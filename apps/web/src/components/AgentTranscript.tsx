@@ -26,27 +26,34 @@ export function AgentTranscript({
   const started = agentEvents.find((event) => event.event_type === 'agent.started');
   const startPayload = record(started?.payload);
   const finished = [...agentEvents].reverse().find((event) => event.event_type === 'agent.finished');
-  const usage = agentEvents
-    .filter((event) => event.event_type === 'agent.usage')
-    .reduce(
-      (total, event) => {
-        const payload = record(event.payload);
-        return {
-          input: total.input + Number(payload?.input_tokens ?? 0),
-          output: total.output + Number(payload?.output_tokens ?? 0),
-        };
-      },
-      { input: 0, output: 0 },
-    );
+  const usageEvents = agentEvents.filter((event) => event.event_type === 'agent.usage');
+  const settledUsage = usageEvents.filter(
+    (event) => record(event.payload)?.phase === 'settle',
+  );
+  const unknownUsage = settledUsage.some(
+    (event) => record(event.payload)?.usage_known === false,
+  );
+  const usage = settledUsage.reduce(
+    (total, event) => {
+      const payload = record(event.payload);
+      return {
+        input: total.input + Number(payload?.input_tokens ?? 0),
+        output: total.output + Number(payload?.output_tokens ?? 0),
+      };
+    },
+    { input: 0, output: 0 },
+  );
 
   return (
     <Panel
       title="Agent turn"
       subtitle={
         startPayload
-          ? usage.input + usage.output > 0
-            ? `${text(startPayload.model) || 'model'} · ${formatNumber(usage.input)} in / ${formatNumber(usage.output)} out tokens`
-            : `${text(startPayload.model) || 'model'} · usage not reported by provider`
+          ? text(startPayload.model) === 'deterministic-planner'
+            ? 'deterministic planner · no model tokens; browser actions are real'
+            : usage.input + usage.output > 0
+              ? `${text(startPayload.model) || 'model'} · ${formatNumber(usage.input)} in / ${formatNumber(usage.output)} out tokens${unknownUsage ? ' · partial, provider omitted some usage' : ''}`
+              : `${text(startPayload.model) || 'model'} · usage not reported by provider`
           : 'The transcript is recorded as events; evidence and tool calls stay inspectable.'
       }
     >

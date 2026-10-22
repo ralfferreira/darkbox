@@ -153,6 +153,7 @@ export function errorMessage(error: unknown): string {
 export interface AgentHealth {
   status: string;
   model: string;
+  planner: string | null;
   base_url: string;
   api_url: string;
   max_steps: number;
@@ -170,6 +171,9 @@ export interface AgentTurnInput {
   identity_id: string | null;
   max_steps: number;
   token_budget: number;
+  start_url?: string;
+  continue_from?: string | null;
+  wait?: boolean;
 }
 
 export async function agentTurn(input: AgentTurnInput): Promise<AgentTurnResponse> {

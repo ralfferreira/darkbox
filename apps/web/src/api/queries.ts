@@ -40,6 +40,9 @@ import type {
   ScopeVersionDto,
   SessionDto,
   TestResultDto,
+  AgentProgress,
+  UpdateIdentityRequest,
+  CreateIdentityRequest,
 } from './types';
 
 export interface InventoryFilters {
@@ -79,6 +82,9 @@ export const keys = {
   eligibility: (id: string) => ['eligibility', id] as const,
   procedures: ['procedures'] as const,
   capabilities: ['capabilities'] as const,
+  browserCapability: ['browser-capability'] as const,
+  runEvidence: (runId: string) => ['run-evidence', runId] as const,
+  agentProgress: (runId: string) => ['agent-progress', runId] as const,
 };
 
 const get = <T>(path: string): Promise<T> => request<T>(path);
@@ -384,6 +390,90 @@ export function useCapabilities(): UseQueryResult<CapabilitiesDto> {
     queryKey: keys.capabilities,
     queryFn: () => get<CapabilitiesDto>('/capabilities'),
     staleTime: 60_000,
+  });
+}
+
+export function useBrowserCapability() {
+  return useQuery({
+    queryKey: keys.browserCapability,
+    queryFn: () =>
+      get<{
+        id: string;
+        provider: string;
+        version: string;
+        state: 'available' | 'unavailable' | 'degraded';
+        detail: string;
+      }>('/capabilities/browser'),
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+export function useRunEvidence(
+  assessmentId: string | undefined,
+  runId: string | undefined,
+): UseQueryResult<EvidenceDto[]> {
+  return useQuery({
+    queryKey: keys.runEvidence(runId ?? ''),
+    queryFn: () =>
+      get<EvidenceDto[]>(
+        `/assessments/${assessmentId}/evidence?run_id=${encodeURIComponent(runId ?? '')}&limit=300`,
+      ),
+    enabled: Boolean(assessmentId && runId),
+    staleTime: 2_000,
+    refetchInterval: 3_000,
+  });
+}
+
+export function useAgentProgress(
+  runId: string | undefined,
+  active: boolean,
+  enabled = true,
+): UseQueryResult<AgentProgress> {
+  return useQuery({
+    queryKey: keys.agentProgress(runId ?? ''),
+    queryFn: () => get<AgentProgress>(`/runs/${runId}/browser/progress`),
+    enabled: Boolean(runId) && enabled,
+    refetchInterval: active ? 1_500 : false,
+    staleTime: 1_000,
+  });
+}
+
+export function useCreateIdentity(
+  assessmentId: string,
+): UseMutationResult<IdentityDto, Error, CreateIdentityRequest> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateIdentityRequest) =>
+      request<IdentityDto>(`/assessments/${assessmentId}/identities`, {
+        method: 'POST',
+        body,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.identities(assessmentId) });
+      void queryClient.invalidateQueries({ queryKey: keys.assessment(assessmentId) });
+    },
+  });
+}
+
+export function useUpdateIdentity(
+  assessmentId: string,
+): UseMutationResult<
+  IdentityDto,
+  Error,
+  { identityId: string; body: UpdateIdentityRequest }
+> {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ identityId, body }) =>
+      request<IdentityDto>(`/assessments/${assessmentId}/identities/${identityId}`, {
+        method: 'POST',
+        body,
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.identities(assessmentId) });
+      void queryClient.invalidateQueries({ queryKey: keys.assessment(assessmentId) });
+    },
   });
 }
 

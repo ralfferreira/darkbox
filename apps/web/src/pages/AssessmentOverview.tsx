@@ -2,11 +2,13 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Download, Play, Plug, Plus, RotateCcw, Sparkles } from 'lucide-react';
 import { useAssessment, useFlows, useObservations } from '../api/queries';
-import { isTerminalRun, type AssessmentDetail } from '../api/types';
+import { isTerminalRun, type AssessmentDetail, type IdentityDto } from '../api/types';
 import { ExportDialog } from '../components/ExportDialog';
 import { FlowRunDialog, ProcedureRunDialog } from '../components/RunStartDialogs';
 import { ImportUrlsDialog } from '../components/ImportUrlsDialog';
 import { AgentTurnDialog } from '../components/AgentTurnDialog';
+import { IdentityDialog } from '../components/IdentityDialog';
+import { IdentitySessionDialog } from '../components/IdentitySessionDialog';
 import { IntegrationRunDialog } from '../components/IntegrationRunDialog';
 import { Status } from '../components/Status';
 import {
@@ -103,6 +105,10 @@ export function AssessmentOverviewPage() {
   const [exportOpen, setExportOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [identityOpen, setIdentityOpen] = useState(false);
+  const [editingIdentity, setEditingIdentity] = useState<IdentityDto | null>(null);
+  const [sessionIdentity, setSessionIdentity] = useState<string | null>(null);
+  const [sessionOpen, setSessionOpen] = useState(false);
 
   if (assessment.isError) {
     return (
@@ -429,7 +435,24 @@ export function AssessmentOverviewPage() {
             <ScopeSummary detail={detail} />
           </Panel>
 
-          <Panel title="Identities" flush>
+          <Panel
+            title="Identities"
+            flush
+            actions={
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setEditingIdentity(null);
+                  setIdentityOpen(true);
+                }}
+                disabled={!canWrite}
+              >
+                <Plus size={13} strokeWidth={1.5} aria-hidden="true" />
+                Add
+              </button>
+            }
+          >
             {detail.identities.length === 0 ? (
               <EmptyState action={<Link to={`/assessments/${id}/runs`}>View runs</Link>}>
                 No identities registered for this assessment.
@@ -460,6 +483,30 @@ export function AssessmentOverviewPage() {
                         ))}
                       </div>
                     ) : null}
+                    <div className="identity-actions">
+                      <button
+                        type="button"
+                        className="btn btn-ghost identity-edit"
+                        onClick={() => {
+                          setEditingIdentity(identity);
+                          setIdentityOpen(true);
+                        }}
+                        disabled={!canWrite}
+                      >
+                        Configure login
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost identity-edit"
+                        onClick={() => {
+                          setSessionIdentity(identity.id);
+                          setSessionOpen(true);
+                        }}
+                        disabled={!canWrite}
+                      >
+                        Start session
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -489,6 +536,18 @@ export function AssessmentOverviewPage() {
             open={agentOpen}
             onClose={() => setAgentOpen(false)}
             assessmentId={id}
+          />
+          <IdentityDialog
+            open={identityOpen}
+            onClose={() => setIdentityOpen(false)}
+            assessmentId={id}
+            identity={editingIdentity}
+          />
+          <IdentitySessionDialog
+            open={sessionOpen}
+            onClose={() => setSessionOpen(false)}
+            assessmentId={id}
+            identityId={sessionIdentity ?? undefined}
           />
           <IntegrationRunDialog
             open={toolsOpen}
