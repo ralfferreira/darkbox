@@ -221,3 +221,5 @@ Session 2 can build on:
 - `2d6196b` `feat(web): show live exploration progress`
 - `e4861da` `docs: record session 1 acceptance and limits`
 - `d8636c7` `docs: refresh session 1 result capture`
+- `90525a8` `docs: list session 1 commits`
+- `208eec0` `docs: refresh session 1 live capture`
