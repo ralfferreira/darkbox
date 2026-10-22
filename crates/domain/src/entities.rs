@@ -121,6 +121,8 @@ pub struct BrowserSession {
     pub expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub last_seen_at: DateTime<Utc>,
+    #[serde(default)]
+    pub last_observation: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

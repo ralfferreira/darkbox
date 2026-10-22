@@ -227,7 +227,8 @@ impl Db {
                 'id', b.id, 'workspace_id', b.workspace_id, 'assessment_id', b.assessment_id,
                 'identity_id', b.identity_id, 'tenant_key', b.tenant_key,
                 'context_key', b.context_key, 'state', b.state, 'expires_at', b.expires_at,
-                'created_at', b.created_at, 'last_seen_at', b.last_seen_at
+                'created_at', b.created_at, 'last_seen_at', b.last_seen_at,
+                'last_observation', b.last_observation
              ) AS row FROM browser_sessions b
              WHERE b.workspace_id=$1 AND b.assessment_id=$2 AND b.context_key=$3",
         )
@@ -293,6 +294,45 @@ impl Db {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn open_session_contexts(
+        &self,
+        workspace_id: WorkspaceId,
+        assessment_id: AssessmentId,
+    ) -> Result<Vec<String>> {
+        let rows = sqlx::query_scalar::<_, String>(
+            "SELECT context_key FROM browser_sessions
+             WHERE workspace_id=$1 AND assessment_id=$2
+               AND closed_at IS NULL AND state NOT IN ('closed','lost')
+             ORDER BY last_seen_at DESC",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(assessment_id.as_uuid())
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    pub async fn active_context_for_run(
+        &self,
+        run_id: RunId,
+        identity_id: IdentityId,
+    ) -> Result<Option<String>> {
+        let row = sqlx::query_scalar::<_, String>(
+            "SELECT a.action->>'context_key'
+             FROM agent_actions a
+             JOIN browser_sessions b ON b.context_key = a.action->>'context_key'
+             WHERE a.run_id=$1 AND b.identity_id=$2
+               AND a.action->>'context_key' IS NOT NULL
+               AND b.closed_at IS NULL AND b.state NOT IN ('closed','lost')
+             ORDER BY a.ordinal DESC LIMIT 1",
+        )
+        .bind(run_id.as_uuid())
+        .bind(identity_id.as_uuid())
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     pub async fn session_state(

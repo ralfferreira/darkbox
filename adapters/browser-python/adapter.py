@@ -85,13 +85,22 @@ def title_of(body):
 
 
 class Scope:
-    """The subset of the run policy the browser must enforce for every request."""
+    """Pinned and current policy. Both must allow a request."""
 
-    def __init__(self, policy):
-        self.policy = policy or {}
-        self.ports = set(self.policy.get("allowed_ports") or [])
-        self.schemes = set(self.policy.get("allowed_schemes") or [])
-        self.include_paths = list(self.policy.get("include_paths") or [])
+    def __init__(self, policy, current=None):
+        self.pinned = policy or {}
+        self.current = current if current is not None else self.pinned
+
+    def update_current(self, policy):
+        if policy is not None:
+            self.current = policy
+
+    def allows(self, url):
+        for label, policy in (("pinned", self.pinned), ("current", self.current)):
+            allowed, reason = self._allows(policy, url)
+            if not allowed:
+                return False, f"{label}:{reason}"
+        return True, "ok"
 
     @staticmethod
     def _host(rule, host):
@@ -109,7 +118,7 @@ class Scope:
             return True
         return path == rule or path.startswith(rule + "/")
 
-    def allows(self, url):
+    def _allows(self, policy, url):
         try:
             parsed = urllib.parse.urlsplit(url)
         except ValueError:
@@ -122,22 +131,25 @@ class Scope:
         host = parsed.hostname or ""
         port = parsed.port or (443 if scheme == "https" else 80)
         path = parsed.path or "/"
-        if self.schemes and scheme not in self.schemes:
+        schemes = set(policy.get("allowed_schemes") or [])
+        ports = set(policy.get("allowed_ports") or [])
+        include_paths = list(policy.get("include_paths") or [])
+        if schemes and scheme not in schemes:
             return False, "unsupported_scheme"
-        if self.ports and port not in self.ports:
+        if ports and port not in ports:
             return False, "port_not_allowed"
-        for rule in self.policy.get("exclude_hosts") or []:
+        for rule in policy.get("exclude_hosts") or []:
             if self._host(rule, host):
                 return False, "excluded_host"
-        for rule in self.policy.get("exclude_paths") or []:
+        for rule in policy.get("exclude_paths") or []:
             if self._path(rule, path):
                 return False, "excluded_path"
-        if self.include_paths and not any(self._path(rule, path) for rule in self.include_paths):
+        if include_paths and not any(self._path(rule, path) for rule in include_paths):
             return False, "path_not_included"
-        included = any(self._host(rule, host) for rule in self.policy.get("include_hosts") or [])
+        included = any(self._host(rule, host) for rule in policy.get("include_hosts") or [])
         auxiliary = any(
             self._host(dep.get("host", ""), host)
-            for dep in (self.policy.get("navigation_dependencies") or [])
+            for dep in (policy.get("navigation_dependencies") or [])
         )
         if not included and not auxiliary:
             return False, "host_not_included"
@@ -422,12 +434,75 @@ class BrowserSession:
         self.last_observation = None
         self.login_state = "unknown"
         self.created_at = time.time()
+        self.command_requests = 0
+        self.command_limit = None
+        self.command_effect = "query"
+        self.request_budget_exceeded = False
+        self.mutation_dispatched = False
+        self.failed_mutations = []
+        self.blocked_navigation = False
+        self.request_total = 0
         self._attach()
 
     def _record(self, kind, **fields):
         entry = {"kind": kind, "at": time.time()}
         entry.update(fields)
         self.traffic.append(entry)
+
+    def begin_command(self, request_limit=None, effect_class="query"):
+        self.command_requests = 0
+        self.command_limit = int(request_limit) if request_limit is not None else None
+        self.command_effect = effect_class or "query"
+        self.request_budget_exceeded = False
+        self.mutation_dispatched = False
+        self.failed_mutations = []
+        self.blocked_navigation = False
+
+    def finish_command(self, result):
+        if not isinstance(result, dict):
+            return result
+        result["request_limit"] = self.command_limit
+        result["requests_used"] = self.command_requests
+        result["request_budget_exhausted"] = self.request_budget_exceeded
+        if self.blocked_navigation:
+            result["status"] = "blocked"
+            result["error"] = "navigation_blocked"
+            result["summary"] = "a navigation request was denied by the current browser policy"
+        elif self.request_budget_exceeded:
+            result["status"] = "blocked"
+            result["error"] = "request_budget_exhausted"
+            result["summary"] = (
+                f"request budget exhausted after {self.command_requests} browser requests; "
+                "the remaining requests were aborted"
+            )
+        elif (
+            self.mutation_dispatched
+            and self.failed_mutations
+            and result.get("status") not in ("outcome_unknown",)
+            and not result.get("login_state") == "login_failed"
+        ):
+            result["status"] = "outcome_unknown"
+            result["error"] = "mutation_result_unknown"
+            result["summary"] = (
+                "a mutation request may have reached the application but its result was not observed"
+            )
+            result["failed_mutations"] = self.failed_mutations[-6:]
+        return result
+
+    @staticmethod
+    def _request_class(method, effect_class):
+        if method.upper() in ("GET", "HEAD", "OPTIONS"):
+            return "query"
+        if effect_class in ("session", "reversible_change", "external_effect"):
+            return effect_class
+        return "external_effect"
+
+    def _class_allowed(self, action_class):
+        for label, policy in (("pinned", self.scope.pinned), ("current", self.scope.current)):
+            allowed = set(policy.get("action_classes") or [])
+            if allowed and action_class not in allowed:
+                return False, f"{label}:action_class_denied:{action_class}"
+        return True, "ok"
 
     def _attach(self):
         page = self.page
@@ -449,6 +524,10 @@ class BrowserSession:
             )
 
         def on_failed(request):
+            if request.method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                self.failed_mutations.append(
+                    {"url": clipped(request.url, 500), "failure": clipped(request.failure, 200)}
+                )
             self._record(
                 "failed",
                 url=clipped(request.url, 500),
@@ -472,18 +551,57 @@ class BrowserSession:
         ) if message.type in ("error", "warning") else None)
         page.on("pageerror", lambda error: self._record("pageerror", text=clipped(error, 500)))
 
+        def block(url, reason):
+            self.blocked.append(
+                {"url": clipped(url, 500), "reason": reason, "at": time.time()}
+            )
+            self._record("blocked", url=clipped(url, 500), reason=reason)
+
         def route_handler(route, request):
-            allowed, reason = self.scope.allows(request.url)
-            if not allowed:
-                self.blocked.append(
-                    {"url": clipped(request.url, 500), "reason": reason, "at": time.time()}
-                )
-                self._record("blocked", url=clipped(request.url, 500), reason=reason)
-                try:
-                    route.abort("blockedbyclient")
-                except Exception:
-                    pass
-                return
+            scheme = urllib.parse.urlsplit(request.url).scheme.lower()
+            if scheme in ("http", "https"):
+                allowed, reason = self.scope.allows(request.url)
+                if not allowed:
+                    if request.resource_type == "document":
+                        self.blocked_navigation = True
+                    block(request.url, reason)
+                    try:
+                        route.abort("blockedbyclient")
+                    except Exception:
+                        pass
+                    return
+                action_class = self._request_class(request.method, self.command_effect)
+                class_allowed, class_reason = self._class_allowed(action_class)
+                if not class_allowed:
+                    if request.resource_type == "document":
+                        self.blocked_navigation = True
+                    block(request.url, class_reason)
+                    try:
+                        route.abort("blockedbyclient")
+                    except Exception:
+                        pass
+                    return
+                if (
+                    self.command_limit is not None
+                    and self.command_requests + 1 > self.command_limit
+                ):
+                    self.request_budget_exceeded = True
+                    block(request.url, "request_budget_exhausted")
+                    try:
+                        route.abort("blockedbyclient")
+                    except Exception:
+                        pass
+                    return
+                self.command_requests += 1
+                self.request_total += 1
+                if request.method.upper() not in ("GET", "HEAD", "OPTIONS"):
+                    self.mutation_dispatched = True
+                    self._record(
+                        "mutation_dispatched",
+                        url=clipped(request.url, 500),
+                        method=request.method,
+                        action_class=action_class,
+                    )
             try:
                 route.continue_()
             except Exception:
@@ -565,6 +683,27 @@ class BrowserSession:
             return None
         locator = self.page.locator(f'[data-darkbox-ref="{ref}"]')
         return locator.first if locator.count() else None
+
+    def _ref_exists(self, ref):
+        return bool(ref) and self.page.locator(f'[data-darkbox-ref="{ref}"]').count() > 0
+
+    def _selector_to_ref(self, selector):
+        if not selector:
+            return None
+        if self._ref_exists(selector):
+            return selector
+        try:
+            field = self.page.locator(selector).first
+            if field.count() == 0:
+                return None
+            ref = field.get_attribute("data-darkbox-ref")
+            if not ref:
+                ref = field.evaluate(
+                    "el => { if (!el.dataset.darkboxRef) { el.dataset.darkboxRef = 'cfg-' + Math.random().toString(36).slice(2, 8); } return el.dataset.darkboxRef; }"
+                )
+            return ref
+        except Exception:
+            return None
 
     def _locator_by_text(self, role, text):
         if not text:
@@ -732,9 +871,30 @@ class BrowserSession:
                 return started
         before = self.observe()
         before_url = before.get("url")
-        password_ref = config.get("password_selector") or config.get("password_ref")
-        username_ref = config.get("username_selector") or config.get("username_ref")
-        submit_ref = config.get("submit_selector") or config.get("submit_ref")
+        password_ref = (
+            self._selector_to_ref(config.get("password_selector"))
+            or config.get("password_ref")
+        )
+        username_ref = (
+            self._selector_to_ref(config.get("username_selector"))
+            or config.get("username_ref")
+        )
+        submit_ref = (
+            self._selector_to_ref(config.get("submit_selector"))
+            or config.get("submit_ref")
+        )
+        # A caller may have observed the login form on a different URL and then
+        # asked the adapter to navigate to the configured login URL. Refs from
+        # that earlier document are stale; fall back to the current form.
+        if password_ref and not self._ref_exists(password_ref):
+            log("login password ref is stale after navigation; rediscovering")
+            password_ref = None
+        if username_ref and not self._ref_exists(username_ref):
+            log("login username ref is stale after navigation; rediscovering")
+            username_ref = None
+        if submit_ref and not self._ref_exists(submit_ref):
+            log("login submit ref is stale after navigation; rediscovering")
+            submit_ref = None
         if not password_ref:
             password_input = self.page.locator('input[type="password"]:visible').first
             if password_input.count() == 0:
@@ -784,10 +944,20 @@ class BrowserSession:
                 "observation": before,
                 "auth": before.get("auth"),
             }
-        self._find(username_ref).fill(str(username))
-        self._find(password_ref).fill(str(password))
+        username_field = self._find(username_ref)
+        password_field = self._find(password_ref)
+        submit_button = self._find(submit_ref)
+        if username_field is None or password_field is None or submit_button is None:
+            return {
+                "status": "blocked",
+                "summary": "login controls could not be resolved on the current page",
+                "error": "login_controls_missing",
+                "observation": self.observe(),
+            }
+        username_field.fill(str(username))
+        password_field.fill(str(password))
         try:
-            self._find(submit_ref).click(timeout=DEFAULT_ACTION_TIMEOUT_MS)
+            submit_button.click(timeout=DEFAULT_ACTION_TIMEOUT_MS)
         except Exception as error:
             return {
                 "status": "outcome_unknown",
@@ -982,14 +1152,18 @@ class EngineHost:
             existing = self.sessions.get(key)
             if existing is not None:
                 existing.close()
-            scope = Scope(command.get("policy") or {})
+            scope = Scope(
+                command.get("policy") or {},
+                payload.get("current_policy") or command.get("policy") or {},
+            )
             session = BrowserSession(key, self.engine, scope, payload)
             self.sessions[key] = session
+            session.begin_command(payload.get("request_limit", 24), "query")
             initial_url = payload.get("url")
             if initial_url:
                 opened = session.navigate(initial_url)
                 if opened.get("status") != "ok":
-                    return opened
+                    return session.finish_command(opened)
             else:
                 session.page.goto("about:blank")
             observation = session.observe()
@@ -1002,6 +1176,8 @@ class EngineHost:
                 "observation": observation,
                 "screenshot_b64": base64.b64encode(data).decode("ascii"),
                 "content_type": "image/jpeg",
+                "requests_used": session.command_requests,
+                "request_limit": session.command_limit,
             }
         key = command.get("session_key") or payload.get("session_key")
         session = self.sessions.get(key)
@@ -1017,23 +1193,36 @@ class EngineHost:
         if kind == "session.abort":
             session.aborted.set()
             return {"status": "ok", "summary": "cancellation signalled"}
+        if kind == "session.policy":
+            policy = payload.get("current_policy") or command.get("current_policy")
+            if policy:
+                session.scope.update_current(policy)
+            return {"status": "ok", "summary": "session policy updated"}
+        policy = payload.get("current_policy") or command.get("current_policy")
+        if policy:
+            session.scope.update_current(policy)
+        session.begin_command(
+            payload.get("request_limit"), payload.get("effect_class") or "query"
+        )
         if kind == "observe":
             observation = session.observe()
-            return {"status": "ok", "summary": "observed current page", "observation": observation}
+            return session.finish_command(
+                {"status": "ok", "summary": "observed current page", "observation": observation}
+            )
         if kind == "navigate":
             result = session.navigate(payload.get("url") or "")
             if result.get("status") == "ok":
                 data = session.screenshot()
                 result["screenshot_b64"] = base64.b64encode(data).decode("ascii")
                 result["content_type"] = "image/jpeg"
-            return result
+            return session.finish_command(result)
         if kind == "act":
             result = session.act(payload.get("action") or {})
             if result.get("status") == "ok":
                 data = session.screenshot()
                 result["screenshot_b64"] = base64.b64encode(data).decode("ascii")
                 result["content_type"] = "image/jpeg"
-            return result
+            return session.finish_command(result)
         if kind == "login":
             result = session.login(payload)
             if result.get("status") in ("ok", "blocked", "inconclusive", "outcome_unknown"):
@@ -1043,26 +1232,26 @@ class EngineHost:
                     result["content_type"] = "image/jpeg"
                 except Exception:
                     pass
-            return result
+            return session.finish_command(result)
         if kind == "screenshot":
             data = session.screenshot()
-            return {
+            return session.finish_command({
                 "status": "ok",
                 "summary": "captured screenshot",
                 "screenshot_b64": base64.b64encode(data).decode("ascii"),
                 "content_type": "image/jpeg",
                 "observation": session.observe(),
-            }
+            })
         if kind == "traffic":
-            return {
+            return session.finish_command({
                 "status": "ok",
                 "summary": f"{len(session.traffic)} recent browser exchanges",
                 "traffic": list(session.traffic),
                 "blocked_requests": list(session.blocked),
-            }
+            })
         if kind == "session.state":
             observation = session.observe()
-            return {
+            return session.finish_command({
                 "status": "ok",
                 "summary": f"session is {session.login_state}",
                 "login_state": session.login_state,
@@ -1073,7 +1262,7 @@ class EngineHost:
                     "uptime_seconds": round(time.time() - session.created_at, 1),
                 },
                 "observation": observation,
-            }
+            })
         raise BrowserEngineError(f"unsupported command {kind}", {"reason": "invalid_request"})
 
     def submit(self, command, timeout=60):

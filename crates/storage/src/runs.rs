@@ -415,6 +415,28 @@ impl Db {
         Ok(true)
     }
 
+    /// Refunds the unused part of a request grant after a browser command. The
+    /// grant was reserved before dispatch; actual requests are settled here.
+    pub async fn settle_requests(&self, run_id: RunId, reserved: i64, used: i64) -> Result<i64> {
+        let refund = (reserved - used).max(0);
+        if refund == 0 {
+            let spent: i64 = sqlx::query_scalar("SELECT spent_requests FROM runs WHERE id=$1")
+                .bind(run_id.as_uuid())
+                .fetch_one(&self.pool)
+                .await?;
+            return Ok(spent);
+        }
+        let spent: i64 = sqlx::query_scalar(
+            "UPDATE runs SET spent_requests=GREATEST(0, spent_requests - $2), updated_at=now()
+             WHERE id=$1 RETURNING spent_requests",
+        )
+        .bind(run_id.as_uuid())
+        .bind(refund)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(spent)
+    }
+
     pub async fn reserve_budget(&self, run_id: RunId, kind: &str, amount: i64) -> Result<bool> {
         let spent: i64 = sqlx::query_scalar("SELECT darkbox_reserve_budget($1,$2,$3)")
             .bind(run_id.as_uuid())

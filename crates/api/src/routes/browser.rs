@@ -2,6 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use darkbox_contracts::*;
 use darkbox_domain::Run;
+use darkbox_evidence::{sanitize_json_value, sanitize_text};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -81,16 +82,15 @@ fn action_kind(action: &Value) -> String {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn record(
+async fn prepare_action(
     state: &AppState,
-    auth: &Principal,
     run: &Run,
     session_key: Option<&str>,
     kind: &str,
     action: &Value,
-    result: Value,
-    decision: Option<String>,
-) -> Result<Value, ApiError> {
+    effect_class: &str,
+) -> Result<uuid::Uuid, ApiError> {
+    let action = sanitize_json_value(action, 64 * 1024);
     let session_id = if let Some(key) = session_key {
         state
             .db
@@ -100,7 +100,42 @@ async fn record(
     } else {
         None
     };
-    let mut stored_action = action.clone();
+    Ok(state
+        .db
+        .start_agent_action(
+            run.workspace_id,
+            run.assessment_id,
+            run.id,
+            session_id,
+            kind,
+            &action,
+            &json!({
+                "phase": "prepared",
+                "policy_version": run.policy_version,
+            }),
+            effect_class,
+            None,
+            45,
+        )
+        .await?)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn record(
+    state: &AppState,
+    auth: &Principal,
+    run: &Run,
+    action_id: uuid::Uuid,
+    session_key: Option<&str>,
+    kind: &str,
+    action: &Value,
+    result: Value,
+    decision: Option<String>,
+) -> Result<Value, ApiError> {
+    let result = sanitize_json_value(&result, 512 * 1024);
+    let action = sanitize_json_value(action, 64 * 1024);
+    let decision = decision.map(|value| sanitize_text(&value, 2_000).text);
+    let mut stored_action = action;
     if let Some(object) = stored_action.as_object_mut() {
         if matches!(kind, "open" | "navigate" | "login") {
             object.insert("type".into(), json!(kind));
@@ -113,17 +148,6 @@ async fn record(
             object.insert("context_key".into(), json!(key));
         }
     }
-    let action_id = state
-        .db
-        .start_agent_action(
-            run.workspace_id,
-            run.assessment_id,
-            run.id,
-            session_id,
-            kind,
-            &stored_action,
-        )
-        .await?;
     let (action_state, effect) = result_state(&result);
     let mut observation = result.get("observation").cloned();
     if let Some(observation) = observation.as_mut().and_then(Value::as_object_mut) {
@@ -158,6 +182,7 @@ async fn record(
             summary,
             observation.as_ref(),
             &evidence_ids,
+            Some(&stored_action),
         )
         .await?;
     let url = observation
@@ -227,43 +252,46 @@ async fn record_blocked(
     state: &AppState,
     auth: &Principal,
     run: &Run,
-    session_key: Option<&str>,
+    action_id: uuid::Uuid,
     kind: &str,
     action: &Value,
     message: &str,
     decision: Option<String>,
 ) -> Result<(), ApiError> {
-    let session_id = if let Some(key) = session_key {
-        state
-            .db
-            .browser_session_by_context(run.workspace_id, run.assessment_id, key)
-            .await?
-            .map(|session| session.id)
-    } else {
-        None
-    };
-    let action_id = state
+    let action = sanitize_json_value(action, 64 * 1024);
+    let message = sanitize_text(message, 4_000).text;
+    let (stored_effect, _) = state
         .db
-        .start_agent_action(
-            run.workspace_id,
-            run.assessment_id,
-            run.id,
-            session_id,
-            kind,
-            action,
-        )
-        .await?;
+        .agent_action_status(action_id)
+        .await?
+        .unwrap_or(("running".into(), "not_dispatched".into()));
+    let effect = if stored_effect == "dispatched" {
+        EffectStatus::OutcomeUnknown
+    } else {
+        EffectStatus::NotDispatched
+    };
     state
         .db
         .finish_agent_action(
             action_id,
-            "blocked",
-            EffectStatus::NotDispatched,
-            message,
+            "failed",
+            effect,
+            &message,
             None,
             &[],
+            Some(&action),
         )
         .await?;
+    if effect == EffectStatus::OutcomeUnknown {
+        state
+            .db
+            .mark_agent_outcome_unknown(
+                run.id,
+                "browser action was dispatched but its result was not confirmed",
+            )
+            .await?;
+        save_checkpoint(state, auth, run.id, "outcome_unknown").await?;
+    }
     state
         .db
         .append_agent_event(
@@ -274,12 +302,11 @@ async fn record_blocked(
                 "action_id": action_id,
                 "kind": kind,
                 "action": action,
-                "state": "blocked",
-                "effect_status": "not_dispatched",
+                "state": "failed",
+                "effect_status": effect.as_str(),
                 "summary": message,
                 "evidence_ids": [],
                 "decision": decision,
-                "session_key": session_key,
             }),
         )
         .await?;
@@ -300,11 +327,34 @@ pub async fn open(
         "identity_id": req.identity_id,
         "tenant": req.tenant,
     });
-    let result = state.executor.browser_open(&run, &args).await?;
+    let action_id = prepare_action(&state, &run, None, "open", &args, "query").await?;
+    let result = match state
+        .executor
+        .browser_open(&run, &args, Some(action_id))
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let message = error.to_string();
+            record_blocked(
+                &state,
+                &auth,
+                &run,
+                action_id,
+                "open",
+                &args,
+                &message,
+                req.decision.clone(),
+            )
+            .await?;
+            return Err(error.into());
+        }
+    };
     let recorded = record(
         &state,
         &auth,
         &run,
+        action_id,
         None,
         "open",
         &args,
@@ -325,9 +375,18 @@ pub async fn navigate(
     let run_id = parse_id::<RunId>(&id)?;
     let (run, _) = running_run(&state, &auth, run_id).await?;
     let args = json!({ "url": req.url, "session_key": req.session_key });
+    let action_id = prepare_action(
+        &state,
+        &run,
+        Some(&req.session_key),
+        "navigate",
+        &args,
+        "query",
+    )
+    .await?;
     let result = match state
         .executor
-        .browser_command(&run, &req.session_key, "navigate", &args)
+        .browser_command(&run, &req.session_key, "navigate", &args, Some(action_id))
         .await
     {
         Ok(result) => result,
@@ -337,7 +396,7 @@ pub async fn navigate(
                 &state,
                 &auth,
                 &run,
-                Some(&req.session_key),
+                action_id,
                 "navigate",
                 &args,
                 &message,
@@ -351,6 +410,7 @@ pub async fn navigate(
         &state,
         &auth,
         &run,
+        action_id,
         Some(&req.session_key),
         "navigate",
         &args,
@@ -371,14 +431,42 @@ pub async fn observe(
     let run_id = parse_id::<RunId>(&id)?;
     let (run, _) = running_run(&state, &auth, run_id).await?;
     let args = json!({ "session_key": req.session_key });
-    let result = state
+    let action_id = prepare_action(
+        &state,
+        &run,
+        Some(&req.session_key),
+        "observe",
+        &args,
+        "query",
+    )
+    .await?;
+    let result = match state
         .executor
-        .browser_command(&run, &req.session_key, "observe", &args)
-        .await?;
+        .browser_command(&run, &req.session_key, "observe", &args, Some(action_id))
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let message = error.to_string();
+            record_blocked(
+                &state,
+                &auth,
+                &run,
+                action_id,
+                "observe",
+                &args,
+                &message,
+                req.decision.clone(),
+            )
+            .await?;
+            return Err(error.into());
+        }
+    };
     let recorded = record(
         &state,
         &auth,
         &run,
+        action_id,
         Some(&req.session_key),
         "observe",
         &args,
@@ -400,9 +488,18 @@ pub async fn act(
     let (run, _) = running_run(&state, &auth, run_id).await?;
     let kind = action_kind(&req.action);
     let args = json!({ "session_key": req.session_key, "action": req.action });
+    let action_id = prepare_action(
+        &state,
+        &run,
+        Some(&req.session_key),
+        &kind,
+        &req.action,
+        "query",
+    )
+    .await?;
     let result = match state
         .executor
-        .browser_command(&run, &req.session_key, "act", &args)
+        .browser_command(&run, &req.session_key, "act", &args, Some(action_id))
         .await
     {
         Ok(result) => result,
@@ -412,7 +509,7 @@ pub async fn act(
                 &state,
                 &auth,
                 &run,
-                Some(&req.session_key),
+                action_id,
                 &kind,
                 &req.action,
                 &message,
@@ -426,6 +523,7 @@ pub async fn act(
         &state,
         &auth,
         &run,
+        action_id,
         Some(&req.session_key),
         &kind,
         &req.action,
@@ -447,14 +545,42 @@ pub async fn login(
     let (run, _) = running_run(&state, &auth, run_id).await?;
     let login = req.login.unwrap_or(Value::Null);
     let args = json!({ "session_key": req.session_key, "login": login });
-    let result = state
+    let action_id = prepare_action(
+        &state,
+        &run,
+        Some(&req.session_key),
+        "login",
+        &args,
+        "session",
+    )
+    .await?;
+    let result = match state
         .executor
-        .browser_command(&run, &req.session_key, "login", &args)
-        .await?;
+        .browser_command(&run, &req.session_key, "login", &args, Some(action_id))
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let message = error.to_string();
+            record_blocked(
+                &state,
+                &auth,
+                &run,
+                action_id,
+                "login",
+                &args,
+                &message,
+                req.decision.clone(),
+            )
+            .await?;
+            return Err(error.into());
+        }
+    };
     let recorded = record(
         &state,
         &auth,
         &run,
+        action_id,
         Some(&req.session_key),
         "login",
         &args,
@@ -475,14 +601,42 @@ pub async fn screenshot(
     let run_id = parse_id::<RunId>(&id)?;
     let (run, _) = running_run(&state, &auth, run_id).await?;
     let args = json!({ "session_key": req.session_key });
-    let result = state
+    let action_id = prepare_action(
+        &state,
+        &run,
+        Some(&req.session_key),
+        "screenshot",
+        &args,
+        "query",
+    )
+    .await?;
+    let result = match state
         .executor
-        .browser_command(&run, &req.session_key, "screenshot", &args)
-        .await?;
+        .browser_command(&run, &req.session_key, "screenshot", &args, Some(action_id))
+        .await
+    {
+        Ok(result) => result,
+        Err(error) => {
+            let message = error.to_string();
+            record_blocked(
+                &state,
+                &auth,
+                &run,
+                action_id,
+                "screenshot",
+                &args,
+                &message,
+                req.decision.clone(),
+            )
+            .await?;
+            return Err(error.into());
+        }
+    };
     let recorded = record(
         &state,
         &auth,
         &run,
+        action_id,
         Some(&req.session_key),
         "screenshot",
         &args,
@@ -502,14 +656,39 @@ pub async fn traffic(
     auth.require_write()?;
     let run_id = parse_id::<RunId>(&id)?;
     let (run, _) = running_run(&state, &auth, run_id).await?;
-    let result = state
-        .executor
-        .browser_traffic(&run, &req.session_key)
-        .await?;
+    let traffic_args = json!({ "session_key": req.session_key });
+    let action_id = prepare_action(
+        &state,
+        &run,
+        Some(&req.session_key),
+        "traffic",
+        &traffic_args,
+        "query",
+    )
+    .await?;
+    let result = match state.executor.browser_traffic(&run, &req.session_key).await {
+        Ok(result) => result,
+        Err(error) => {
+            let message = error.to_string();
+            record_blocked(
+                &state,
+                &auth,
+                &run,
+                action_id,
+                "traffic",
+                &traffic_args,
+                &message,
+                req.decision.clone(),
+            )
+            .await?;
+            return Err(error.into());
+        }
+    };
     let recorded = record(
         &state,
         &auth,
         &run,
+        action_id,
         Some(&req.session_key),
         "traffic",
         &json!({ "session_key": req.session_key }),
@@ -529,11 +708,39 @@ pub async fn close(
     auth.require_write()?;
     let run_id = parse_id::<RunId>(&id)?;
     let (run, _) = running_run(&state, &auth, run_id).await?;
-    let result = state.executor.browser_close(&run, &req.session_key).await?;
+    let close_args = json!({ "session_key": req.session_key });
+    let action_id = prepare_action(
+        &state,
+        &run,
+        Some(&req.session_key),
+        "close",
+        &close_args,
+        "query",
+    )
+    .await?;
+    let result = match state.executor.browser_close(&run, &req.session_key).await {
+        Ok(result) => result,
+        Err(error) => {
+            let message = error.to_string();
+            record_blocked(
+                &state,
+                &auth,
+                &run,
+                action_id,
+                "close",
+                &close_args,
+                &message,
+                None,
+            )
+            .await?;
+            return Err(error.into());
+        }
+    };
     let recorded = record(
         &state,
         &auth,
         &run,
+        action_id,
         Some(&req.session_key),
         "close",
         &json!({ "session_key": req.session_key }),

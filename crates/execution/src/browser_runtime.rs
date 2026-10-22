@@ -302,6 +302,9 @@ impl BrowserRuntime {
                     "identity": context.identity,
                     "tenant": context.tenant,
                     "url": context.url,
+                    "current_policy": context.current_policy,
+                    "request_limit": context.request_limit,
+                    "effect_class": "query",
                 }),
             },
             Duration::from_secs(55),
@@ -318,8 +321,17 @@ impl BrowserRuntime {
         assessment_id: AssessmentId,
         run_id: darkbox_contracts::RunId,
         policy: &ScopePolicy,
+        current_policy: &ScopePolicy,
         payload: Value,
+        request_limit: i64,
+        effect_class: &str,
     ) -> Result<Value, BrowserHostError> {
+        let mut payload = payload;
+        if let Some(object) = payload.as_object_mut() {
+            object.insert("current_policy".into(), json!(current_policy));
+            object.insert("request_limit".into(), json!(request_limit));
+            object.insert("effect_class".into(), json!(effect_class));
+        }
         self.send(
             Request {
                 kind,
@@ -333,6 +345,32 @@ impl BrowserRuntime {
             Duration::from_secs(55),
         )
         .await
+    }
+
+    pub async fn update_policy(
+        &self,
+        session_key: &str,
+        current_policy: &ScopePolicy,
+    ) -> Result<(), BrowserHostError> {
+        let base = self.ensure().await?;
+        let payload = json!({
+            "schema_version": 1,
+            "kind": "session.policy",
+            "session_key": session_key,
+            "payload": { "current_policy": current_policy },
+        });
+        let mut builder = reqwest::Client::new()
+            .post(format!("{base}/v1/command"))
+            .timeout(Duration::from_secs(10))
+            .json(&payload);
+        if let Some(token) = self.token_for_request() {
+            builder = builder.bearer_auth(token);
+        }
+        builder
+            .send()
+            .await
+            .map_err(|error| BrowserHostError::Request(error.to_string()))?;
+        Ok(())
     }
 
     pub async fn abort(&self, session_key: &str) -> Result<bool, BrowserHostError> {
@@ -387,7 +425,9 @@ pub struct OpenContext<'a> {
     pub assessment_id: AssessmentId,
     pub run_id: darkbox_contracts::RunId,
     pub policy: &'a ScopePolicy,
+    pub current_policy: &'a ScopePolicy,
     pub identity: Value,
     pub tenant: Option<String>,
     pub url: &'a str,
+    pub request_limit: i64,
 }

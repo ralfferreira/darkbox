@@ -210,6 +210,16 @@ pub struct ObservationDto {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlowAssertion {
+    pub kind: String,
+    pub value: String,
+    #[serde(default)]
+    pub row: Option<String>,
+    #[serde(default)]
+    pub column: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FlowStepDto {
     pub ordinal: i64,
     pub action_id: Option<crate::ActionId>,
@@ -219,6 +229,8 @@ pub struct FlowStepDto {
     pub confirmed: bool,
     #[serde(default)]
     pub action_json: serde_json::Value,
+    #[serde(default)]
+    pub assertion: Option<FlowAssertion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -234,6 +246,8 @@ pub struct FlowDto {
     pub preconditions: Vec<String>,
     pub observed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub recorded_at: chrono::DateTime<chrono::Utc>,
+    #[serde(default)]
+    pub assertion: Option<FlowAssertion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -249,6 +263,8 @@ pub struct CreateFlowRequest {
     pub state: Option<crate::FlowState>,
     #[serde(default)]
     pub evidence_ids: Vec<EvidenceId>,
+    #[serde(default)]
+    pub assertion: Option<FlowAssertion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -262,6 +278,8 @@ pub struct CreateFlowStep {
     pub action_json: serde_json::Value,
     #[serde(default)]
     pub confirmed: bool,
+    #[serde(default)]
+    pub assertion: Option<FlowAssertion>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -342,6 +360,10 @@ pub struct AgentUsageRequest {
     pub model: String,
     #[serde(default)]
     pub usage_known: Option<bool>,
+    #[serde(default)]
+    pub estimated_input_tokens: Option<i64>,
+    #[serde(default)]
+    pub estimated_output_tokens: Option<i64>,
 }
 
 fn default_usage_phase() -> String {
@@ -374,6 +396,8 @@ pub struct AgentFinishRequest {
     pub evidence_ids: Vec<EvidenceId>,
     #[serde(default = "default_agent_outcome")]
     pub outcome: String,
+    #[serde(default)]
+    pub assertion: Option<FlowAssertion>,
 }
 
 fn default_agent_outcome() -> String {

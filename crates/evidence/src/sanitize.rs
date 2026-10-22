@@ -114,6 +114,17 @@ mod tests {
     }
 
     #[test]
+    fn lab_sentinel_is_redacted_in_json_text() {
+        let value = serde_json::json!({"text": "DarkBox Lab\nSecret surface\nLAB_SECRET_darkbox_7f3a\nAPI token"});
+        let out = sanitize_json_value(&value, 10_000);
+        assert!(
+            !out.to_string().contains("LAB_SECRET_darkbox_7f3a"),
+            "{}",
+            out
+        );
+    }
+
+    #[test]
     fn truncation_is_reported() {
         let out = sanitize_text(&"x".repeat(1000), 100);
         assert!(out.truncated);
@@ -126,5 +137,51 @@ mod tests {
         assert!(out.text.contains("GET /pricing"));
         assert!(out.text.contains("price: 42"));
         assert_eq!(out.redactions, 0);
+    }
+}
+
+/// Sanitizes structured browser data before it reaches storage, events,
+/// transcript, memory or the model. The JSON shape (including element refs) is
+/// preserved unless sanitization makes it unparseable.
+pub fn sanitize_json_value(value: &serde_json::Value, max_bytes: usize) -> serde_json::Value {
+    match value {
+        serde_json::Value::String(text) => {
+            serde_json::Value::String(sanitize_text(text, max_bytes).text)
+        }
+        serde_json::Value::Array(items) => serde_json::Value::Array(
+            items
+                .iter()
+                .map(|item| sanitize_json_value(item, max_bytes))
+                .collect(),
+        ),
+        serde_json::Value::Object(object) => serde_json::Value::Object(
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), sanitize_json_value(value, max_bytes)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
+#[cfg(test)]
+mod json_tests {
+    use super::*;
+
+    #[test]
+    fn structured_values_and_urls_are_redacted_without_losing_refs() {
+        let value = serde_json::json!({
+            "url": "http://lab/app?token=LAB_SECRET_darkbox_7f3a",
+            "interactive": [{
+                "ref": "e5",
+                "name": "Password",
+                "value": "LAB_SECRET_darkbox_7f3a",
+                "error": "api_key=abcdef1234"
+            }]
+        });
+        let out = sanitize_json_value(&value, 10_000);
+        assert_eq!(out["interactive"][0]["ref"], "e5");
+        assert!(!out.to_string().contains("LAB_SECRET_darkbox_7f3a"));
+        assert!(!out.to_string().contains("abcdef1234"));
     }
 }

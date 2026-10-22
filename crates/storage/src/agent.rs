@@ -296,6 +296,7 @@ impl Db {
         Utc::now()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn start_agent_action(
         &self,
         workspace_id: WorkspaceId,
@@ -304,7 +305,22 @@ impl Db {
         session_id: Option<BrowserSessionId>,
         kind: &str,
         action: &serde_json::Value,
+        authorization: &serde_json::Value,
+        effect_class: &str,
+        idempotency_key: Option<&str>,
+        lease_seconds: i64,
     ) -> Result<uuid::Uuid> {
+        if let Some(key) = idempotency_key
+            && let Some(existing) = sqlx::query_scalar::<_, uuid::Uuid>(
+                "SELECT id FROM agent_actions WHERE run_id=$1 AND idempotency_key=$2",
+            )
+            .bind(run_id.as_uuid())
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?
+        {
+            return Ok(existing);
+        }
         let id = uuid::Uuid::now_v7();
         let ordinal: i32 = sqlx::query_scalar(
             "SELECT COALESCE(MAX(ordinal), -1) + 1 FROM agent_actions WHERE run_id=$1",
@@ -314,8 +330,10 @@ impl Db {
         .await?;
         sqlx::query(
             "INSERT INTO agent_actions (id, workspace_id, assessment_id, run_id, session_id,
-                ordinal, kind, action, state, effect_status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'running','not_applicable')",
+                ordinal, kind, action, authorization_json, effect_class, idempotency_key,
+                state, effect_status, lease_expires_at)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'running','not_dispatched',
+                now() + make_interval(secs => $12))",
         )
         .bind(id)
         .bind(workspace_id.as_uuid())
@@ -325,12 +343,52 @@ impl Db {
         .bind(ordinal)
         .bind(kind)
         .bind(action)
+        .bind(authorization)
+        .bind(effect_class)
+        .bind(idempotency_key)
+        .bind(lease_seconds)
         .execute(&self.pool)
         .await?;
         Ok(id)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    pub async fn mark_agent_action_dispatched(
+        &self,
+        id: uuid::Uuid,
+        authorization: &serde_json::Value,
+        effect_class: &str,
+        requests_reserved: i64,
+        lease_seconds: i64,
+    ) -> Result<()> {
+        sqlx::query(
+            "UPDATE agent_actions SET effect_status='dispatched', authorization_json=$2,
+                effect_class=$3, requests_reserved=$4,
+                lease_expires_at=now() + make_interval(secs => $5)
+             WHERE id=$1 AND state='running'",
+        )
+        .bind(id)
+        .bind(authorization)
+        .bind(effect_class)
+        .bind(requests_reserved)
+        .bind(lease_seconds)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn agent_action_status(&self, id: uuid::Uuid) -> Result<Option<(String, String)>> {
+        let row = sqlx::query("SELECT state, effect_status FROM agent_actions WHERE id=$1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|row| {
+            (
+                row.get::<String, _>("state"),
+                row.get::<String, _>("effect_status"),
+            )
+        }))
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub async fn finish_agent_action(
         &self,
@@ -340,10 +398,12 @@ impl Db {
         summary: &str,
         observation: Option<&serde_json::Value>,
         evidence_ids: &[EvidenceId],
+        action: Option<&serde_json::Value>,
     ) -> Result<()> {
         sqlx::query(
             "UPDATE agent_actions SET state=$2, effect_status=$3, summary=$4,
-                observation=$5, evidence_ids=$6, finished_at=now()
+                observation=$5, evidence_ids=$6, action=COALESCE($7, action),
+                finished_at=now(), lease_expires_at=NULL
              WHERE id=$1",
         )
         .bind(id)
@@ -357,6 +417,7 @@ impl Db {
                 .map(|id| id.as_uuid())
                 .collect::<Vec<_>>(),
         )
+        .bind(action)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -399,12 +460,13 @@ impl Db {
         run_id: RunId,
         call_id: &str,
         model: &str,
+        estimated_cost_micros: i64,
     ) -> Result<bool> {
         let mut tx = self.pool.begin().await?;
         let inserted = sqlx::query(
             "INSERT INTO agent_model_calls
-                (call_id, workspace_id, assessment_id, run_id, model)
-             VALUES ($1,$2,$3,$4,$5)
+                (call_id, workspace_id, assessment_id, run_id, model, reserved_cost_micros)
+             VALUES ($1,$2,$3,$4,$5,$6)
              ON CONFLICT (call_id) DO NOTHING",
         )
         .bind(call_id)
@@ -412,6 +474,7 @@ impl Db {
         .bind(assessment_id.as_uuid())
         .bind(run_id.as_uuid())
         .bind(model)
+        .bind(estimated_cost_micros.max(0))
         .execute(&mut *tx)
         .await?
         .rows_affected()
@@ -425,12 +488,20 @@ impl Db {
             .fetch_one(&mut *tx)
             .await?;
         if spent < 0 {
-            sqlx::query("DELETE FROM agent_model_calls WHERE call_id=$1")
-                .bind(call_id)
-                .execute(&mut *tx)
-                .await?;
-            tx.commit().await?;
+            tx.rollback().await?;
             return Ok(false);
+        }
+        if estimated_cost_micros > 0 {
+            let cost: i64 =
+                sqlx::query_scalar("SELECT darkbox_reserve_budget($1,'cost_micros',$2)")
+                    .bind(run_id.as_uuid())
+                    .bind(estimated_cost_micros)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if cost < 0 {
+                tx.rollback().await?;
+                return Ok(false);
+            }
         }
         tx.commit().await?;
         Ok(true)
@@ -451,7 +522,7 @@ impl Db {
     ) -> Result<Option<serde_json::Value>> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
-            "SELECT cost_micros, settled_at FROM agent_model_calls
+            "SELECT cost_micros, reserved_cost_micros, settled_at FROM agent_model_calls
              WHERE call_id=$1 AND run_id=$2 FOR UPDATE",
         )
         .bind(call_id)
@@ -464,9 +535,14 @@ impl Db {
             tx.commit().await?;
             return Ok(None);
         }
-        let reserved: i64 = row.try_get::<Option<i64>, _>("cost_micros")?.unwrap_or(0);
+        let reserved: i64 = row.try_get::<i64, _>("reserved_cost_micros").unwrap_or(0);
         let actual = if usage_known { cost_micros } else { None };
-        let delta = actual.unwrap_or(0) - reserved;
+        // Unknown usage keeps the conservative monetary reservation.
+        let delta = if usage_known {
+            actual.unwrap_or(0) - reserved
+        } else {
+            0
+        };
         if delta != 0 {
             let spent: i64 = sqlx::query_scalar("SELECT darkbox_adjust_cost($1,$2)")
                 .bind(run_id.as_uuid())
@@ -511,7 +587,8 @@ impl Db {
                 'call_id', call_id, 'model', model, 'reserved_at', reserved_at,
                 'settled_at', settled_at, 'input_tokens', input_tokens,
                 'output_tokens', output_tokens, 'total_tokens', total_tokens,
-                'cost_micros', cost_micros, 'usage_known', usage_known
+                'cost_micros', cost_micros, 'reserved_cost_micros', reserved_cost_micros,
+                'usage_known', usage_known
              ) AS row FROM agent_model_calls WHERE run_id=$1 ORDER BY reserved_at",
         )
         .bind(run_id.as_uuid())
@@ -589,6 +666,197 @@ impl Db {
                 "agent.cancelled",
                 run_id.to_string(),
                 serde_json::json!({ "reason": reason, "partial_results_preserved": true }),
+            ),
+        )
+        .await?;
+        tx.commit().await?;
+        self.run_summary(workspace_id, run_id).await
+    }
+
+    /// Recovers actions left running by a crashed process. On API startup
+    /// `force` treats every running action as stale because no in-process action
+    /// can predate the new process.
+    pub async fn recover_stale_agent_actions(&self, force: bool) -> Result<u64> {
+        let rows = sqlx::query(
+            "SELECT id, run_id, workspace_id, assessment_id, effect_status,
+                    COALESCE(action->>'context_key','') AS context_key
+             FROM agent_actions
+             WHERE state='running'
+               AND ($1 OR lease_expires_at IS NULL OR lease_expires_at < now())",
+        )
+        .bind(force)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut recovered = 0u64;
+        for row in rows {
+            let action_id: Uuid = row.try_get("id")?;
+            let run_id: Uuid = row.try_get("run_id")?;
+            let workspace_id: Uuid = row.try_get("workspace_id")?;
+            let assessment_id: Uuid = row.try_get("assessment_id")?;
+            let effect: String = row.try_get("effect_status")?;
+            let dispatched = effect == EffectStatus::Dispatched.as_str();
+            let mut tx = self.pool.begin().await?;
+            if dispatched {
+                sqlx::query(
+                    "UPDATE agent_actions SET state='failed', effect_status='outcome_unknown',
+                        summary='process stopped after dispatch; result unknown',
+                        finished_at=now(), lease_expires_at=NULL
+                     WHERE id=$1 AND state='running'",
+                )
+                .bind(action_id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "UPDATE runs SET state='waiting_operator', effect_unknown=true,
+                        reason='agent_action_outcome_unknown', updated_at=now()
+                     WHERE id=$1 AND state='running'",
+                )
+                .bind(run_id)
+                .execute(&mut *tx)
+                .await?;
+            } else {
+                sqlx::query(
+                    "UPDATE agent_actions SET state='failed', effect_status='not_dispatched',
+                        summary='process stopped before dispatch; action was not sent',
+                        finished_at=now(), lease_expires_at=NULL
+                     WHERE id=$1 AND state='running'",
+                )
+                .bind(action_id)
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query(
+                    "UPDATE runs SET state='failed', reason='agent_action_interrupted_before_dispatch',
+                        updated_at=now(), finished_at=now()
+                     WHERE id=$1 AND state='running'",
+                )
+                .bind(run_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            sqlx::query(
+                "UPDATE run_steps SET state='failed', summary='agent process interrupted',
+                    finished_at=now(), lease_owner=NULL, lease_expires_at=NULL
+                 WHERE run_id=$1 AND state='running'",
+            )
+            .bind(run_id)
+            .execute(&mut *tx)
+            .await?;
+            insert_event_tx(
+                &mut tx,
+                &EventEnvelope::new(
+                    workspace_id.into(),
+                    assessment_id.into(),
+                    Some(run_id.into()),
+                    Some(action_id.into()),
+                    "agent.action.recovered",
+                    action_id.to_string(),
+                    serde_json::json!({
+                        "effect_status": if dispatched { "outcome_unknown" } else { "not_dispatched" },
+                        "reason": if dispatched { "process_stopped_after_dispatch" } else { "process_stopped_before_dispatch" },
+                    }),
+                ),
+            )
+            .await?;
+            tx.commit().await?;
+            let run_text = run_id.to_string();
+            let short = &run_text[run_text.len().saturating_sub(8)..];
+            let body = format!(
+                "# Objective checkpoint\n\nRun `{run_id}` was interrupted by a process stop.\n\nAction `{action_id}`: {}.\n\n{}",
+                if dispatched {
+                    "dispatched, result unknown; do not repeat automatically"
+                } else {
+                    "not dispatched; the action did not reach the target"
+                },
+                "A new session may continue from the observed state. Reconcile an applied effect before repeating it."
+            );
+            let _ = self
+                .save_memory_page(
+                    workspace_id.into(),
+                    assessment_id.into(),
+                    &format!("checkpoint-{short}"),
+                    &format!("Objective checkpoint {short}"),
+                    &body,
+                    &[MemoryReferenceDto {
+                        kind: "run".into(),
+                        id: run_text,
+                        label: "interrupted objective".into(),
+                    }],
+                    "checkpoint",
+                    "executor-recovery",
+                )
+                .await;
+            recovered += 1;
+        }
+        Ok(recovered)
+    }
+
+    pub async fn reconcile_agent_action(
+        &self,
+        workspace_id: WorkspaceId,
+        run_id: RunId,
+        actor: &str,
+        resolution: &str,
+        note: &str,
+    ) -> Result<RunSummary> {
+        if !matches!(resolution, "applied" | "not_applied") {
+            return Err(DbError::Invalid(
+                "resolution must be applied or not_applied".into(),
+            ));
+        }
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT assessment_id FROM runs WHERE workspace_id=$1 AND id=$2 AND kind='agent'
+             AND state='waiting_operator'",
+        )
+        .bind(workspace_id.as_uuid())
+        .bind(run_id.as_uuid())
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| {
+            DbError::Conflict("agent objective is not waiting for reconciliation".into())
+        })?;
+        let assessment_id: Uuid = row.try_get("assessment_id")?;
+        let count = sqlx::query(
+            "UPDATE agent_actions SET resolution=$2, resolved_at=now(), resolved_by=$3,
+                summary=COALESCE(NULLIF($4,''), summary)
+             WHERE run_id=$1 AND effect_status='outcome_unknown' AND resolution IS NULL",
+        )
+        .bind(run_id.as_uuid())
+        .bind(resolution)
+        .bind(actor)
+        .bind(note)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if count == 0 {
+            tx.rollback().await?;
+            return Err(DbError::Conflict(
+                "no unknown action needs reconciliation".into(),
+            ));
+        }
+        sqlx::query(
+            "UPDATE runs SET effect_unknown=false, state='failed', finished_at=now(), updated_at=now(),
+                reason=$2 WHERE id=$1",
+        )
+        .bind(run_id.as_uuid())
+        .bind(format!("reconciled_{resolution}: {note}"))
+        .execute(&mut *tx)
+        .await?;
+        insert_event_tx(
+            &mut tx,
+            &EventEnvelope::new(
+                workspace_id,
+                assessment_id.into(),
+                Some(run_id),
+                None,
+                "agent.action.reconciled",
+                run_id.to_string(),
+                serde_json::json!({
+                    "resolution": resolution,
+                    "actions": count,
+                    "actor": actor,
+                    "note": note,
+                }),
             ),
         )
         .await?;

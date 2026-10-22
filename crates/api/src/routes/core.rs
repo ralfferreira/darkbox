@@ -197,6 +197,12 @@ pub async fn create_scope_version(
             &auth.operator,
         )
         .await?;
+    let updated = state
+        .executor
+        .browser_update_policy(auth.workspace_id, id, &scope.policy)
+        .await
+        .unwrap_or(0);
+    tracing::info!(assessment = %id, sessions = updated, "pushed current scope to open browser contexts");
     state
         .db
         .audit(

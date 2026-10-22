@@ -37,7 +37,7 @@ pub async fn create_turn(
             .get_identity(auth.workspace_id, assessment_id, identity_id)
             .await?;
     }
-    let max_steps = req.max_steps.clamp(1, 12);
+    let max_steps = req.max_steps.clamp(1, 16);
     let token_budget = req.token_budget.clamp(500, 16_000);
     let start_url = match req.start_url.clone() {
         Some(url) if !url.trim().is_empty() => Some(url),
@@ -201,6 +201,7 @@ const ALLOWED_AGENT_EVENTS: &[&str] = &[
     "agent.progress",
     "agent.checkpoint",
     "agent.flow",
+    "agent.accounting_error",
 ];
 
 pub async fn append_event(
@@ -263,6 +264,22 @@ pub async fn finish(
             "a successful objective needs at least one evidence id from this run",
         ));
     }
+    if outcome == "succeeded" && req.assertion.is_none() {
+        return Err(ApiError::conflict(
+            "a successful objective needs a structured assertion for the observed result",
+        ));
+    }
+    if let Some(assertion) = &req.assertion {
+        if !matches!(
+            assertion.kind.as_str(),
+            "text_contains" | "url_contains" | "table_row_contains" | "table_cell_equals"
+        ) {
+            return Err(ApiError::invalid("unsupported assertion kind"));
+        }
+        if assertion.value.trim().is_empty() {
+            return Err(ApiError::invalid("assertion value is required"));
+        }
+    }
     let (assessment_id, identity_id, run_state, policy_version, operation) = state
         .db
         .agent_run_context(auth.workspace_id, run_id)
@@ -323,6 +340,7 @@ pub async fn finish(
                 },
                 action_json: action.action.clone(),
                 confirmed: action.state == "succeeded",
+                assertion: None,
             })
             .collect();
         if !steps.is_empty() {
@@ -343,6 +361,7 @@ pub async fn finish(
                             FlowState::Observed
                         }),
                         evidence_ids: evidence_ids.clone(),
+                        assertion: req.assertion.clone(),
                     },
                     "agent",
                 )
@@ -403,6 +422,12 @@ pub async fn finish(
                     .join(", ")
             ));
         }
+    }
+    if let Some(assertion) = &req.assertion {
+        body.push_str(&format!(
+            "\n## Verified assertion\n\n`{}` `{}`\n\n",
+            assertion.kind, assertion.value
+        ));
     }
     if !req.next_steps.is_empty() {
         body.push_str("\n## Next steps\n\n");
@@ -515,9 +540,6 @@ pub async fn usage(
         .db
         .agent_run_context(auth.workspace_id, run_id)
         .await?;
-    if run_state != "running" {
-        return Err(ApiError::conflict("agent run is not running"));
-    }
     let call_id = req
         .call_id
         .clone()
@@ -527,6 +549,20 @@ pub async fn usage(
         .usage_known
         .unwrap_or(req.total_tokens > 0 || req.input_tokens > 0 || req.output_tokens > 0);
     if req.phase == "reserve" {
+        if run_state != "running" {
+            return Err(ApiError::conflict("agent run is not running"));
+        }
+        let input_rate = std::env::var("DARKBOX_MODEL_INPUT_MICROS_PER_MTOK")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
+        let output_rate = std::env::var("DARKBOX_MODEL_OUTPUT_MICROS_PER_MTOK")
+            .ok()
+            .and_then(|value| value.parse::<i64>().ok())
+            .unwrap_or(0);
+        let estimated_cost = req.estimated_input_tokens.unwrap_or(0).max(0) * input_rate
+            / 1_000_000
+            + req.estimated_output_tokens.unwrap_or(0).max(0) * output_rate / 1_000_000;
         if !state
             .db
             .reserve_model_call(
@@ -535,10 +571,13 @@ pub async fn usage(
                 run_id,
                 &call_id,
                 &req.model,
+                estimated_cost,
             )
             .await?
         {
-            return Err(ApiError::blocked("budget_exhausted: model_calls"));
+            return Err(ApiError::blocked(
+                "budget_exhausted: model_calls or cost_micros",
+            ));
         }
         state
             .db
@@ -551,6 +590,7 @@ pub async fn usage(
                     "call_id": call_id,
                     "model": req.model,
                     "reserved_model_call": 1,
+                    "reserved_cost_micros": estimated_cost,
                     "usage_known": false,
                 }),
             )
@@ -601,11 +641,40 @@ pub async fn usage(
                     "output_tokens": settled.get("output_tokens"),
                     "total_tokens": settled.get("total_tokens"),
                     "cost_micros": settled.get("cost_micros"),
+                    "reserved_cost_micros": settled.get("reserved_cost_micros"),
                 }),
             )
             .await?;
     }
     Ok(Json(state.db.run_summary(auth.workspace_id, run_id).await?))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ReconcileRequest {
+    pub resolution: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+pub async fn reconcile(
+    State(state): State<AppState>,
+    Auth(auth): Auth,
+    Path(id): Path<String>,
+    Json(req): Json<ReconcileRequest>,
+) -> Result<Json<RunSummary>, ApiError> {
+    auth.require_write()?;
+    let run_id = parse_id::<RunId>(&id)?;
+    let summary = state
+        .db
+        .reconcile_agent_action(
+            auth.workspace_id,
+            run_id,
+            &auth.operator,
+            &req.resolution,
+            req.note.trim(),
+        )
+        .await?;
+    Ok(Json(summary))
 }
 
 #[derive(Debug, serde::Deserialize)]

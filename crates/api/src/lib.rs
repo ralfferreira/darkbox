@@ -277,6 +277,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/runs/{id}/agent/finish", post(routes::agent::finish))
         .route("/v1/runs/{id}/agent/abort", post(routes::agent::abort))
         .route(
+            "/v1/runs/{id}/agent/reconcile",
+            post(routes::agent::reconcile),
+        )
+        .route(
             "/v1/runs/{id}/agent/checkpoint",
             get(routes::agent::checkpoint),
         )
@@ -384,6 +388,20 @@ pub fn router(state: AppState) -> Router {
 }
 
 pub async fn serve(state: AppState, bind: &str) -> anyhow::Result<()> {
+    let recovery_db = state.db.clone();
+    tokio::spawn(async move {
+        if let Err(error) = recovery_db.recover_stale_agent_actions(true).await {
+            tracing::warn!(error = %error, "initial agent action recovery failed");
+        }
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            match recovery_db.recover_stale_agent_actions(false).await {
+                Ok(0) => {}
+                Ok(count) => tracing::warn!(count, "recovered stale agent actions"),
+                Err(error) => tracing::warn!(error = %error, "agent action recovery failed"),
+            }
+        }
+    });
     let app = router(state);
     let listener = tokio::net::TcpListener::bind(bind).await?;
     tracing::info!(bind, "darkbox api listening");

@@ -8,14 +8,174 @@
 use base64::Engine as _;
 use darkbox_contracts::*;
 use darkbox_domain::Run;
-use darkbox_evidence::sanitize_text;
+use darkbox_evidence::{sanitize_json_value, sanitize_text};
 use serde_json::{Value, json};
 
 use crate::browser_runtime::OpenContext;
 use crate::{ExecError, ExecResult, Executor};
 
 impl Executor {
-    pub async fn browser_open(&self, run: &Run, args: &Value) -> ExecResult<Value> {
+    async fn current_policy(&self, run: &Run) -> ExecResult<ScopePolicy> {
+        Ok(self
+            .db
+            .get_scope(run.workspace_id, run.assessment_id, None)
+            .await?
+            .policy)
+    }
+
+    async fn reserve_request_grant(&self, run: &Run, max: i64) -> ExecResult<i64> {
+        if max <= 0 {
+            return Ok(0);
+        }
+        for amount in (1..=max).rev() {
+            if self.db.reserve_budget(run.id, "requests", amount).await? {
+                return Ok(amount);
+            }
+        }
+        Ok(0)
+    }
+
+    async fn settle_request_grant(&self, run: &Run, grant: i64, result: &Value) {
+        if grant <= 0 {
+            return;
+        }
+        let used = result
+            .get("requests_used")
+            .and_then(Value::as_i64)
+            .unwrap_or(grant)
+            .clamp(0, grant);
+        let _ = self.db.settle_requests(run.id, grant, used).await;
+    }
+
+    fn action_class_for(
+        &self,
+        session: &darkbox_domain::BrowserSession,
+        kind: &str,
+        args: &Value,
+    ) -> ActionClass {
+        if kind == "login" {
+            return ActionClass::Session;
+        }
+        if kind != "act" {
+            return ActionClass::Query;
+        }
+        let action = args.get("action").unwrap_or(args);
+        let action_type = action
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or("click");
+        if !matches!(action_type, "click" | "press") {
+            return ActionClass::Query;
+        }
+        let observation = session.last_observation.as_ref();
+        let login_form = observation
+            .and_then(|value| value.get("auth"))
+            .and_then(|value| value.get("login_form"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if login_form {
+            return ActionClass::Session;
+        }
+        if action_type == "press" {
+            let key = action.get("key").and_then(Value::as_str).unwrap_or("Enter");
+            if key == "Enter"
+                && observation
+                    .and_then(|value| value.get("forms"))
+                    .and_then(Value::as_array)
+                    .map(|forms| {
+                        forms
+                            .iter()
+                            .any(|form| form.get("method").and_then(Value::as_str) == Some("post"))
+                    })
+                    .unwrap_or(false)
+            {
+                return ActionClass::ExternalEffect;
+            }
+            return ActionClass::Query;
+        }
+        let reference = action.get("ref").and_then(Value::as_str);
+        let item = reference.and_then(|reference| {
+            observation
+                .and_then(|value| value.get("interactive"))
+                .and_then(Value::as_array)
+                .and_then(|items| {
+                    items
+                        .iter()
+                        .find(|item| item.get("ref").and_then(Value::as_str) == Some(reference))
+                })
+        });
+        let Some(item) = item else {
+            return ActionClass::Query;
+        };
+        let tag = item.get("tag").and_then(Value::as_str).unwrap_or("");
+        let field_type = item.get("type").and_then(Value::as_str).unwrap_or("");
+        let form_method = item
+            .get("form_method")
+            .and_then(Value::as_str)
+            .unwrap_or("get");
+        let submits = (tag == "button" || tag == "input")
+            && (field_type == "submit" || field_type == "image");
+        if submits && form_method.eq_ignore_ascii_case("post") {
+            return ActionClass::ExternalEffect;
+        }
+        ActionClass::Query
+    }
+
+    async fn authorize_effect(
+        &self,
+        run: &Run,
+        session: &darkbox_domain::BrowserSession,
+        action_class: ActionClass,
+        args: &Value,
+    ) -> ExecResult<Option<Value>> {
+        if !matches!(
+            action_class,
+            ActionClass::Session | ActionClass::ReversibleChange | ActionClass::ExternalEffect
+        ) {
+            return Ok(None);
+        }
+        let target = args
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                session
+                    .last_observation
+                    .as_ref()
+                    .and_then(|value| value.get("url"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_else(|| "about:blank".into());
+        if target == "about:blank" {
+            return Ok(None);
+        }
+        let (_, decision) = self
+            .authorize_url(
+                run,
+                &target,
+                action_class,
+                darkbox_policy::TargetRole::TestTarget,
+            )
+            .await?;
+        if decision.allowed {
+            return Ok(None);
+        }
+        Ok(Some(json!({
+            "status": "blocked",
+            "summary": format!("{} action denied by {}", action_class.as_str(), decision.rule),
+            "reason": decision.rule,
+            "action_class": action_class.as_str(),
+            "observation": Value::Null,
+        })))
+    }
+
+    pub async fn browser_open(
+        &self,
+        run: &Run,
+        args: &Value,
+        action_id: Option<uuid::Uuid>,
+    ) -> ExecResult<Value> {
         let identity_id: IdentityId = args
             .get("identity_id")
             .or_else(|| args.get("identity"))
@@ -60,6 +220,50 @@ impl Executor {
         if !self.db.reserve_budget(run.id, "browser_steps", 1).await? {
             return Err(ExecError::Blocked("budget_exhausted: browser_steps".into()));
         }
+        if let Some(existing) = self.db.active_context_for_run(run.id, identity_id).await? {
+            let navigation = self
+                .browser_command(run, &existing, "navigate", &json!({ "url": url }), None)
+                .await?;
+            if navigation.get("status").and_then(Value::as_str) == Some("ok") {
+                return Ok(json!({
+                    "status": "ok",
+                    "summary": navigation.get("summary").cloned().unwrap_or(json!("reused browser session")),
+                    "engine": navigation.get("engine").cloned().unwrap_or(Value::Null),
+                    "session": {
+                        "context_key": existing,
+                        "identity_id": identity_id,
+                        "identity_label": identity.label,
+                        "tenant": tenant,
+                        "state": "open",
+                        "reused": true,
+                    },
+                    "observation": navigation.get("observation").cloned().unwrap_or(Value::Null),
+                    "evidence_ids": navigation.get("evidence_ids").cloned().unwrap_or(json!([])),
+                }));
+            }
+            return Ok(navigation);
+        }
+        let current_policy = self.current_policy(run).await?;
+        let request_grant = self.reserve_request_grant(run, 24).await?;
+        if request_grant == 0 {
+            return Err(ExecError::Blocked("budget_exhausted: requests".into()));
+        }
+        if let Some(action_id) = action_id {
+            self.db
+                .mark_agent_action_dispatched(
+                    action_id,
+                    &json!({
+                        "phase": "dispatched",
+                        "policy_version": run.policy_version,
+                        "rule": "allow",
+                        "url": url,
+                    }),
+                    "query",
+                    request_grant,
+                    45,
+                )
+                .await?;
+        }
         let context_key = format!(
             "ctx-{}-{}-{}",
             run.id,
@@ -81,12 +285,15 @@ impl Executor {
                 assessment_id: run.assessment_id,
                 run_id: run.id,
                 policy: &run.policy,
+                current_policy: &current_policy,
                 identity: identity_payload,
                 tenant: tenant.clone(),
                 url,
+                request_limit: request_grant,
             })
             .await
             .map_err(|error| ExecError::Blocked(format!("browser_open: {error}")))?;
+        self.settle_request_grant(run, request_grant, &opened).await;
         let status = opened
             .get("status")
             .and_then(Value::as_str)
@@ -145,12 +352,14 @@ impl Executor {
         }))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn browser_command(
         &self,
         run: &Run,
         session_key: &str,
         kind: &str,
         args: &Value,
+        action_id: Option<uuid::Uuid>,
     ) -> ExecResult<Value> {
         let session = self
             .db
@@ -158,6 +367,18 @@ impl Executor {
             .await?
             .ok_or_else(|| ExecError::Blocked("browser_session_not_found".into()))?;
         let identity_id = Some(session.identity_id);
+        let current_policy = self.current_policy(run).await?;
+        let action_class = if kind == "navigate" {
+            ActionClass::Query
+        } else {
+            self.action_class_for(&session, kind, args)
+        };
+        if let Some(blocked) = self
+            .authorize_effect(run, &session, action_class, args)
+            .await?
+        {
+            return Ok(blocked);
+        }
         if kind == "navigate"
             && let Some(url) = args.get("url").and_then(Value::as_str)
         {
@@ -209,7 +430,40 @@ impl Executor {
                 "observation": Value::Null,
             }));
         }
-        let response = self
+        let max_requests = if matches!(kind, "observe" | "screenshot" | "traffic") {
+            0
+        } else if kind == "login" {
+            12
+        } else {
+            24
+        };
+        let request_grant = self.reserve_request_grant(run, max_requests).await?;
+        if max_requests > 0 && request_grant == 0 {
+            return Ok(serde_json::json!({
+                "status": "blocked",
+                "summary": "request budget exhausted before dispatch",
+                "reason": "budget_exhausted: requests",
+                "action_class": action_class.as_str(),
+                "observation": Value::Null,
+            }));
+        }
+        if let Some(action_id) = action_id {
+            self.db
+                .mark_agent_action_dispatched(
+                    action_id,
+                    &json!({
+                        "phase": "dispatched",
+                        "policy_version": run.policy_version,
+                        "rule": "allow",
+                        "action_class": action_class.as_str(),
+                    }),
+                    action_class.as_str(),
+                    request_grant,
+                    45,
+                )
+                .await?;
+        }
+        let response = match self
             .browser_runtime()
             .command(
                 kind,
@@ -218,10 +472,26 @@ impl Executor {
                 run.assessment_id,
                 run.id,
                 &run.policy,
+                &current_policy,
                 args.clone(),
+                request_grant,
+                action_class.as_str(),
             )
             .await
-            .map_err(|error| ExecError::Blocked(format!("browser_{kind}: {error}")))?;
+        {
+            Ok(response) => {
+                self.settle_request_grant(run, request_grant, &response)
+                    .await;
+                response
+            }
+            Err(error) => {
+                let _ = self
+                    .db
+                    .settle_requests(run.id, request_grant, request_grant)
+                    .await;
+                return Err(ExecError::Blocked(format!("browser_{kind}: {error}")));
+            }
+        };
         let state = response
             .get("status")
             .and_then(Value::as_str)
@@ -325,6 +595,7 @@ impl Executor {
             .browser_session_by_context(run.workspace_id, run.assessment_id, session_key)
             .await?
             .ok_or_else(|| ExecError::Blocked("browser_session_not_found".into()))?;
+        let current_policy = self.current_policy(run).await?;
         let response = self
             .browser_runtime()
             .command(
@@ -334,10 +605,14 @@ impl Executor {
                 run.assessment_id,
                 run.id,
                 &run.policy,
+                &current_policy,
                 json!({}),
+                0,
+                "query",
             )
             .await
             .map_err(|error| ExecError::Blocked(format!("browser_traffic: {error}")))?;
+        let response = sanitize_json_value(&response, 512 * 1024);
         let trace = serde_json::to_string_pretty(&response).unwrap_or_default();
         let sanitized = sanitize_text(&trace, 256 * 1024);
         let evidence = self
@@ -357,6 +632,30 @@ impl Executor {
             "blocked_requests": response.get("blocked_requests").cloned().unwrap_or(Value::Null),
             "evidence_ids": [evidence],
         }))
+    }
+
+    pub async fn browser_update_policy(
+        &self,
+        workspace_id: WorkspaceId,
+        assessment_id: AssessmentId,
+        policy: &ScopePolicy,
+    ) -> ExecResult<usize> {
+        let keys = self
+            .db
+            .open_session_contexts(workspace_id, assessment_id)
+            .await?;
+        let mut updated = 0;
+        for key in keys {
+            if self
+                .browser_runtime()
+                .update_policy(&key, policy)
+                .await
+                .is_ok()
+            {
+                updated += 1;
+            }
+        }
+        Ok(updated)
     }
 
     pub async fn browser_close(&self, run: &Run, session_key: &str) -> ExecResult<Value> {
@@ -387,7 +686,9 @@ impl Executor {
         label: &str,
     ) -> ExecResult<(Vec<EvidenceId>, Option<Value>)> {
         let mut evidence_ids = Vec::new();
-        let observation = response.get("observation").cloned();
+        let observation = response
+            .get("observation")
+            .map(|value| sanitize_json_value(value, 512 * 1024));
         if let Some(observation) = &observation {
             let trace = json!({
                 "label": label,

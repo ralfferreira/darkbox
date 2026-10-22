@@ -21,6 +21,7 @@ pub fn main_router(app: App) -> Router {
         .route("/robots.txt", get(robots))
         .route("/sitemap.xml", get(sitemap))
         .route("/login", get(login_form).post(login))
+        .route("/portal/signin", get(portal_form).post(portal_login))
         .route("/logout", get(logout))
         .route("/app", get(app_root))
         .route("/app/{tenant}", get(dashboard))
@@ -30,14 +31,18 @@ pub fn main_router(app: App) -> Router {
         .route("/app/{tenant}/items", get(items))
         .route("/app/{tenant}/admin/forbidden", get(admin_forbidden))
         .route("/app/{tenant}/prompt-injection", get(prompt_injection))
+        .route("/app/{tenant}/secret-surface", get(secret_surface))
         .route("/app/{tenant}/expire", get(expire))
         .route("/app/{tenant}/counter", post(counter))
         .route("/app/{tenant}/api/state", get(api_state))
         .route("/app/{tenant}/effect-check", get(effect_check))
+        .route("/app/{tenant}/burst", get(burst_page))
+        .route("/app/{tenant}/api/burst", get(burst_api))
         .route("/app/{tenant}/api/slow-effect", post(slow_effect))
         .route("/go/outside", get(go_outside))
         .route("/assets/app.js", get(app_js))
         .route("/assets/reports.js", get(reports_js))
+        .route("/assets/burst.js", get(burst_js))
         .route("/secret-note.txt", get(secret_note))
         .route("/excluded", get(main_excluded))
         .route("/_lab/state", get(lab_state))
@@ -185,6 +190,35 @@ async fn login_form() -> Response {
     html(StatusCode::OK, pages::login())
 }
 
+async fn portal_form() -> Response {
+    html(StatusCode::OK, pages::portal_login())
+}
+
+#[derive(Deserialize)]
+struct PortalForm {
+    account: String,
+    passphrase: String,
+}
+
+async fn portal_login(State(app): State<App>, Form(form): Form<PortalForm>) -> Response {
+    let account = form.account.trim();
+    let (session_id, tenant) = {
+        let mut state = app.lock();
+        let Some(user) = state.user(account).cloned() else {
+            tracing::warn!(user = ?account, "portal login rejected");
+            return html(StatusCode::UNAUTHORIZED, pages::login_failed());
+        };
+        if user.password != form.passphrase {
+            tracing::warn!(user = ?account, "portal login rejected");
+            return html(StatusCode::UNAUTHORIZED, pages::login_failed());
+        }
+        let tenant = user.tenants.first().copied().unwrap_or("north").to_string();
+        let session_id = state.create_session(&user);
+        (session_id, tenant)
+    };
+    redirect_with_cookie(&format!("/app/{tenant}"), auth::session_cookie(&session_id))
+}
+
 #[derive(Deserialize)]
 struct LoginForm {
     username: String,
@@ -312,6 +346,21 @@ async fn admin_forbidden(
         &format!("/app/{}/admin/forbidden", tenant.as_str()),
     );
     html(StatusCode::OK, pages::admin_forbidden(tenant))
+}
+
+async fn secret_surface(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(tenant): Path<String>,
+) -> Response {
+    let tenant = match resolve_tenant(&tenant) {
+        Ok(tenant) => tenant,
+        Err(response) => return response,
+    };
+    if let Err(response) = require_auth(&app, &headers, tenant) {
+        return response;
+    }
+    html(StatusCode::OK, pages::secret_surface(tenant))
 }
 
 async fn prompt_injection(
@@ -485,10 +534,14 @@ async fn api_reports(
         .and_then(|value| value.parse::<f64>().ok())
         .unwrap_or(0.0)
         .clamp(0.0, 100.0);
+    let corrupt = query
+        .get("corrupt")
+        .map(|value| value == "1")
+        .unwrap_or(false);
     let rows: Vec<_> = state::REPORT_ROWS
         .iter()
-        .filter(|row| period == "all" || row.period == period)
-        .filter(|row| row.margin >= min_margin)
+        .filter(|row| corrupt || period == "all" || row.period == period)
+        .filter(|row| corrupt || row.margin >= min_margin)
         .map(|row| {
             json!({
                 "period": row.period,
@@ -512,6 +565,44 @@ async fn api_reports(
         "rendered_at": chrono::Utc::now().to_rfc3339(),
     }))
     .into_response()
+}
+
+async fn burst_page(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(tenant): Path<String>,
+) -> Response {
+    let tenant = match resolve_tenant(&tenant) {
+        Ok(tenant) => tenant,
+        Err(response) => return response,
+    };
+    if let Err(response) = require_auth(&app, &headers, tenant) {
+        return response;
+    }
+    html(StatusCode::OK, pages::burst(tenant))
+}
+
+async fn burst_api(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Path(tenant): Path<String>,
+) -> Response {
+    let tenant = match resolve_tenant(&tenant) {
+        Ok(tenant) => tenant,
+        Err(response) => return response,
+    };
+    if let Err(response) = require_auth(&app, &headers, tenant) {
+        return response;
+    }
+    Json(json!({ "ok": true })).into_response()
+}
+
+async fn burst_js() -> Response {
+    response_with_type(
+        StatusCode::OK,
+        "text/javascript; charset=utf-8",
+        pages::BURST_JS.to_string(),
+    )
 }
 
 async fn reports_js() -> Response {

@@ -43,6 +43,7 @@ impl Executor {
                     "identity_id": identity_id,
                     "tenant": tenant,
                 }),
+                None,
             )
             .await?;
         if opened.get("status").and_then(Value::as_str) != Some("ok") {
@@ -82,7 +83,7 @@ impl Executor {
             }
         }
         let result = self
-            .browser_command(run, &context_key, "login", &json!({ "login": login }))
+            .browser_command(run, &context_key, "login", &json!({ "login": login }), None)
             .await?;
         let status = result
             .get("status")
@@ -208,6 +209,7 @@ impl Executor {
                     "identity_id": identity_id,
                     "tenant": flow.tenant_key,
                 }),
+                None,
             )
             .await?;
         let status = opened
@@ -245,6 +247,7 @@ impl Executor {
             .unwrap_or_default();
         let mut confirmed = Vec::new();
         let mut failed_reason = None;
+        let mut last_observation = Some(opened.get("observation").cloned().unwrap_or(Value::Null));
         for item in &flow.steps {
             let action = &item.action_json;
             let kind = action
@@ -259,10 +262,10 @@ impl Executor {
                 continue;
             }
             let result = if kind == "login" {
-                self.browser_command(run, &context_key, "login", &json!({ "login": {} }))
+                self.browser_command(run, &context_key, "login", &json!({ "login": {} }), None)
                     .await?
             } else {
-                self.browser_command(run, &context_key, "act", &json!({ "action": action }))
+                self.browser_command(run, &context_key, "act", &json!({ "action": action }), None)
                     .await?
             };
             if let Some(ids) = result
@@ -291,6 +294,7 @@ impl Executor {
                 break;
             }
             let observation = result.get("observation").cloned().unwrap_or(Value::Null);
+            last_observation = Some(observation.clone());
             let observed_text = observation
                 .get("text")
                 .and_then(|value| value.as_str())
@@ -299,37 +303,39 @@ impl Executor {
                 .get("url")
                 .and_then(|value| value.as_str())
                 .unwrap_or("");
-            let expectation = item.expected_result.trim();
-            let matched = if matches!(
-                kind,
-                "click" | "fill" | "select" | "wait" | "scroll" | "press" | "back"
-            ) {
-                true
-            } else {
-                expectation.is_empty()
-                    || observed_text.contains(expectation)
-                    || observed_url.contains(expectation)
-            };
-            if matched {
-                confirmed.push(item.ordinal);
-            } else {
-                failed_reason = Some(format!(
-                    "step {} did not expose the recorded expected result",
-                    item.ordinal
-                ));
+            let _ = (observed_text, observed_url);
+            if let Some(assertion) = &item.assertion {
+                if assertion_matches(assertion, &observation) {
+                    confirmed.push(item.ordinal);
+                } else {
+                    failed_reason = Some(format!(
+                        "step {} assertion failed: {}",
+                        item.ordinal, assertion.kind
+                    ));
+                }
             }
         }
         let _ = self.browser_close(run, &context_key).await;
-        let state = match &failed_reason {
-            None => FlowState::Reproduced,
-            Some(reason) => {
-                if reason.contains("login") || reason.contains("authenticated") {
-                    FlowState::Blocked
-                } else {
-                    FlowState::Observed
-                }
-            }
+        let final_observation = last_observation.unwrap_or(Value::Null);
+        let assertion_passed = flow
+            .assertion
+            .as_ref()
+            .map(|assertion| assertion_matches(assertion, &final_observation));
+        let state = if failed_reason.is_some() {
+            FlowState::Observed
+        } else if assertion_passed == Some(true) {
+            FlowState::Reproduced
+        } else {
+            FlowState::Observed
         };
+        if assertion_passed.is_none() {
+            failed_reason = Some(
+                "flow has no structured final assertion; actions ran but the result is unverified"
+                    .into(),
+            );
+        } else if assertion_passed == Some(false) {
+            failed_reason = Some("final assertion did not match the rendered result".into());
+        }
         self.db
             .update_flow_observation(flow_id, state, &evidence_ids, &confirmed)
             .await?;
@@ -481,5 +487,90 @@ impl Executor {
             },
             evidence_ids,
         ))
+    }
+}
+
+fn assertion_matches(assertion: &FlowAssertion, observation: &Value) -> bool {
+    let text = observation
+        .get("text")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_lowercase();
+    let url = observation
+        .get("url")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_lowercase();
+    let value = assertion.value.to_lowercase();
+    match assertion.kind.as_str() {
+        "text_contains" => text.contains(&value),
+        "url_contains" => url.contains(&value),
+        "table_row_contains" => observation
+            .get("tables")
+            .and_then(Value::as_array)
+            .map(|tables| {
+                tables.iter().any(|table| {
+                    table
+                        .get("rows")
+                        .and_then(Value::as_array)
+                        .map(|rows| {
+                            rows.iter().any(|row| {
+                                row.as_array()
+                                    .map(|cells| {
+                                        cells
+                                            .iter()
+                                            .filter_map(Value::as_str)
+                                            .collect::<Vec<_>>()
+                                            .join(" ")
+                                            .to_lowercase()
+                                            .contains(&value)
+                                    })
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false),
+        "table_cell_equals" => observation
+            .get("tables")
+            .and_then(Value::as_array)
+            .map(|tables| {
+                tables.iter().any(|table| {
+                    table
+                        .get("rows")
+                        .and_then(Value::as_array)
+                        .map(|rows| {
+                            rows.iter().any(|row| {
+                                let Some(cells) = row.as_array() else {
+                                    return false;
+                                };
+                                let row_text = cells
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join(" ")
+                                    .to_lowercase();
+                                if assertion
+                                    .row
+                                    .as_ref()
+                                    .map(|needle| !row_text.contains(&needle.to_lowercase()))
+                                    .unwrap_or(false)
+                                {
+                                    return false;
+                                }
+                                let column = assertion.column.unwrap_or(0);
+                                cells
+                                    .get(column)
+                                    .and_then(Value::as_str)
+                                    .map(|cell| cell.eq_ignore_ascii_case(&assertion.value))
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false),
+        _ => false,
     }
 }
