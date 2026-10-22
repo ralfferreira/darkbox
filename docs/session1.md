@@ -308,3 +308,6 @@ Session 2 can build on:
 - `208eec0` `docs: refresh session 1 live capture`
 - `fa02e76` `fix(browser): enforce scope, budget and durable action intent`
 - `75203a0` `feat(agent): settle usage and verify replay results`
+- `26acbb8` `fix(evidence): sanitize structured observations by key and metadata`
+- `b5fbeed` `fix(storage): persist cost above budget and block model calls`
+- `4096f2f` `fix(acceptance): correlate the oracle with the evaluated run`
