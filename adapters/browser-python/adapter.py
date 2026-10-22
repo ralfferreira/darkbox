@@ -79,6 +79,91 @@ def resolve_secret(ref):
     return None
 
 
+_SENSITIVE_FIELD_TOKENS = {
+    "password",
+    "passwd",
+    "pwd",
+    "passphrase",
+    "secret",
+    "token",
+    "apikey",
+    "api_key",
+    "credential",
+    "otp",
+    "csrf",
+    "xsrf",
+    "cookie",
+    "authorization",
+    "bearer",
+    "session_id",
+    "sid",
+}
+
+
+def is_sensitive_name(name):
+    normalized = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+    if not normalized:
+        return False
+    if normalized in _SENSITIVE_FIELD_TOKENS:
+        return True
+    return any(
+        token in _SENSITIVE_FIELD_TOKENS for token in normalized.split("_") if token
+    )
+
+
+def redact_url_query(url):
+    """Redacts userinfo and sensitive query parameters, preserving the rest."""
+    if "?" not in url:
+        return url
+    base, query = url.split("?", 1)
+    fragment = None
+    if "#" in query:
+        query, fragment = query.split("#", 1)
+    pairs = []
+    for pair in query.split("&"):
+        name, sep, value = pair.partition("=")
+        if sep and is_sensitive_name(name):
+            pairs.append(f"{name}=[redacted]")
+        else:
+            pairs.append(pair)
+    output = base + "?" + "&".join(pairs)
+    if fragment is not None:
+        output += "#" + fragment
+    return output
+
+
+def redact_observation(value, known_secrets):
+    """Removes known secrets, sensitive form values and sensitive URL
+    parameters before the core, the model or an evidence store can see them."""
+    secrets = {str(secret) for secret in (known_secrets or set()) if secret}
+
+    def walk(item):
+        if isinstance(item, str):
+            redacted = item
+            for secret in secrets:
+                if secret in redacted:
+                    redacted = redacted.replace(secret, "[redacted]")
+            if "://" in redacted or redacted.startswith("/"):
+                redacted = redact_url_query(redacted)
+            return redacted
+        if isinstance(item, list):
+            return [walk(child) for child in item]
+        if isinstance(item, dict):
+            sensitive_object = bool(item.get("sensitive")) or str(
+                item.get("type") or ""
+            ).lower() == "password"
+            out = {}
+            for key, child in item.items():
+                if sensitive_object and key == "value":
+                    out[key] = "[redacted]"
+                else:
+                    out[key] = walk(child)
+            return out
+        return item
+
+    return walk(value)
+
+
 def title_of(body):
     match = re.search(r"<title[^>]*>(.*?)</title>", body, re.I | re.S)
     return match.group(1).strip()[:120] if match else ""
@@ -181,6 +266,10 @@ OBSERVE_JS = r"""
     const rect = el.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
   };
+  const sensitiveName = (name) =>
+    /(pass|secret|token|apikey|api[_-]?key|credential|otp|pin|csrf|xsrf|auth|cookie|session|bearer)/i.test(
+      name || '',
+    );
   const label = (el) => {
     const bits = [];
     const aria = el.getAttribute('aria-label');
@@ -237,6 +326,9 @@ OBSERVE_JS = r"""
       checked: typeof el.checked === 'boolean' ? el.checked : null,
       selected: el.selectedIndex !== undefined ? el.selectedIndex : null,
       bounds: [Math.round(rect.x), Math.round(rect.y), Math.round(rect.width), Math.round(rect.height)],
+      field_name: el.getAttribute('name') || null,
+      sensitive:
+        (tag === 'input' && type === 'password') || sensitiveName(el.getAttribute('name')),
     };
     if (tag === 'select') {
       entry.options = Array.from(el.options).slice(0, 30).map((option) => ({
@@ -264,6 +356,10 @@ OBSERVE_JS = r"""
         type: (el.getAttribute('type') || '').toLowerCase() || null,
         name: el.getAttribute('name'),
         label: label(el),
+        field_name: el.getAttribute('name') || null,
+        sensitive:
+          (el.getAttribute('type') || '').toLowerCase() === 'password' ||
+          sensitiveName(el.getAttribute('name')),
       })),
   }));
   const headings = Array.from(document.querySelectorAll('h1,h2,h3'))
@@ -420,10 +516,18 @@ class BrowserSession:
         self.scope = scope
         self.identity = payload.get("identity") or {}
         self.tenant = payload.get("tenant")
+        self.run_id = payload.get("run_id")
+        self.known_secrets = set()
+        extra_headers = {}
+        if self.run_id:
+            # Correlation marker so the target can attribute a request to the
+            # exact execution without the core passing secrets around.
+            extra_headers["X-Darkbox-Run"] = str(self.run_id)
         self.context = engine.browser.new_context(
             viewport={"width": 1280, "height": 900},
             ignore_https_errors=False,
             locale="en-US",
+            extra_http_headers=extra_headers,
         )
         self.page = self.context.new_page()
         self.page.set_default_timeout(DEFAULT_ACTION_TIMEOUT_MS)
@@ -448,6 +552,13 @@ class BrowserSession:
         entry = {"kind": kind, "at": time.time()}
         entry.update(fields)
         self.traffic.append(entry)
+
+    def register_secret(self, value):
+        if value:
+            self.known_secrets.add(str(value))
+
+    def redact(self, value):
+        return redact_observation(value, self.known_secrets)
 
     def begin_command(self, request_limit=None, effect_class="query"):
         self.command_requests = 0
@@ -638,6 +749,8 @@ class BrowserSession:
         elif observation.get("auth", {}).get("likely_authenticated"):
             if self.login_state not in ("expired",):
                 self.login_state = "authenticated"
+        observation = self.redact(observation)
+        self.last_observation = observation
         return observation
 
     def screenshot(self):
@@ -856,6 +969,8 @@ class BrowserSession:
         config = payload.get("login") or {}
         secret_ref = self.identity.get("secret_ref")
         password = resolve_secret(secret_ref)
+        if password:
+            self.register_secret(password)
         if not password:
             return {
                 "status": "blocked",
@@ -1156,7 +1271,12 @@ class EngineHost:
                 command.get("policy") or {},
                 payload.get("current_policy") or command.get("policy") or {},
             )
-            session = BrowserSession(key, self.engine, scope, payload)
+            session = BrowserSession(
+                key,
+                self.engine,
+                scope,
+                {**payload, "run_id": command.get("run_id")},
+            )
             self.sessions[key] = session
             session.begin_command(payload.get("request_limit", 24), "query")
             initial_url = payload.get("url")

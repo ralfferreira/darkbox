@@ -352,6 +352,7 @@ async fn secret_surface(
     State(app): State<App>,
     headers: HeaderMap,
     Path(tenant): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
 ) -> Response {
     let tenant = match resolve_tenant(&tenant) {
         Ok(tenant) => tenant,
@@ -360,7 +361,13 @@ async fn secret_surface(
     if let Err(response) = require_auth(&app, &headers, tenant) {
         return response;
     }
-    html(StatusCode::OK, pages::secret_surface(tenant))
+    // The value arrives under a sensitive parameter name so the projection
+    // under test has to redact the URL as well as the rendered field.
+    let sentinel = query
+        .get("access_token")
+        .cloned()
+        .unwrap_or_else(|| "sentinel-not-set".to_string());
+    html(StatusCode::OK, pages::secret_surface(tenant, &sentinel))
 }
 
 async fn prompt_injection(
@@ -551,9 +558,13 @@ async fn api_reports(
             })
         })
         .collect();
-    let trace_id = app
-        .lock()
-        .record_report_query(tenant.as_str(), &period, min_margin, rows.len());
+    let run_id = headers
+        .get("x-darkbox-run")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.to_string());
+    let trace_id =
+        app.lock()
+            .record_report_query(tenant.as_str(), &period, min_margin, rows.len(), run_id);
     Json(json!({
         "tenant": tenant.as_str(),
         "period": period,

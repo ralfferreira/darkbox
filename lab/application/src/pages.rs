@@ -401,15 +401,16 @@ pub fn burst(tenant: Tenant) -> String {
     layout("Request burst", &body)
 }
 
-pub fn secret_surface(tenant: Tenant) -> String {
+pub fn secret_surface(tenant: Tenant, sentinel: &str) -> String {
     let tenant = tenant.as_str();
+    let sentinel = escape_html(sentinel);
     let body = format!(
         r#"<h1>Secret surface</h1>
-<p id="sentinel">LAB_SECRET_darkbox_7f3a</p>
-<label>API token <input name="note" value="LAB_SECRET_darkbox_7f3a"></label>
-<p><a href="/app/{tenant}/settings?token=LAB_SECRET_darkbox_7f3a">Token link</a></p>
+<label>API token <input name="token" value="{sentinel}"></label>
+<p><a href="/app/{tenant}/settings?access_token={sentinel}&period=2026-08">Token link</a></p>
 <p><a href="/app/{tenant}">Back to dashboard</a></p>"#,
         tenant = tenant,
+        sentinel = sentinel,
     );
     layout("Secret surface", &body)
 }
