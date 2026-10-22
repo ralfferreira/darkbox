@@ -1,0 +1,31 @@
+{
+  "checked_at": "2026-10-22T00:59:00Z",
+  "compose_file": "deploy/docker-compose.yml",
+  "services": {
+    "postgres": "healthy",
+    "api": "healthy on 8787",
+    "lab": "reachable from api at http://lab:8080 (HTTP 200)",
+    "agent": "healthy on 8790"
+  },
+  "browser": {
+    "engine": "playwright-chromium",
+    "version": "148.0.7778.0",
+    "javascript_probe": "passed",
+    "note": "The container Chromium build differs from the host build; the probe reports the running engine rather than an environment flag."
+  },
+  "agent_run": {
+    "run_id": "01a1611f-6031-77f2-b5b2-b1c431388529",
+    "outcome": "succeeded",
+    "elapsed_seconds": 5.4,
+    "target": "http://lab:8080",
+    "evidence_items": 18,
+    "evidence_kinds": ["browser_screenshot", "browser_trace"]
+  },
+  "host_reachability": {
+    "host": "host.docker.internal",
+    "port": 8091,
+    "result": "API container opened and observed a page served on the operator host",
+    "scope": "the host and port were explicitly present in the assessment policy"
+  },
+  "interface": "served by the API at http://127.0.0.1:8787 and reachable on the published port"
+}

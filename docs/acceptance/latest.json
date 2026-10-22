@@ -1,14 +1,14 @@
 {
-  "generated_at": "2026-10-21T23:09:44.114937Z",
-  "lab_version": "lab-1",
+  "generated_at": "2026-10-22T00:39:19.193157Z",
+  "lab_version": "lab-2",
   "criteria": [
     {
       "id": "AC-01",
       "title": "Excluded destinations blocked before access",
       "status": "passed",
-      "detail": "lab oracle excluded_hits=0, forbidden path hits=0; 3 destinations recorded as excluded; run 01a160ba-3b3b-736b-8c12-33002ed464ba spent 1 requests",
+      "detail": "lab oracle excluded_hits=0, forbidden path hits=0; 3 destinations recorded as excluded; run 01a1610b-b35b-74f6-86fa-7c746eba2f63 spent 1 requests",
       "evidence": [
-        "01a160ba-3b3b-736b-8c12-33002ed464ba",
+        "01a1610b-b35b-74f6-86fa-7c746eba2f63",
         "policy_version=1"
       ]
     },
@@ -29,8 +29,8 @@
       "status": "passed",
       "detail": "alice and bob authenticated in separate adapter contexts; evidence contains no session cookie or password",
       "evidence": [
-        "01a160ba-3ac7-76f2-a2bd-b7ee986ac7f0",
-        "01a160ba-3b0e-76f0-a057-57a854d3187e"
+        "01a1610b-b1ad-705c-8729-ebfc4452a69c",
+        "01a1610b-b2a3-7482-9bf9-9bd039f08fa0"
       ]
     },
     {
@@ -39,27 +39,27 @@
       "status": "passed",
       "detail": "confirmed finding requires evidence (409 without it); hypotheses remain labelled; every confirmed finding lists evidence",
       "evidence": [
-        "01a160ba-3dbf-7265-85b9-70d89b6a2d81",
-        "01a160ba-3dcc-7258-abec-30b8a291ed26"
+        "01a1610b-e138-7255-ac18-832dd7b2b4e2",
+        "01a1610b-e467-759d-bede-9ec8c6c52692"
       ]
     },
     {
       "id": "AC-05",
       "title": "Restart preserves evidence and resume context",
       "status": "passed",
-      "detail": "11 evidence records read back through a new connection; context package references 8 records and 925 tokens",
+      "detail": "15 evidence records read back through a new connection; context package references 8 records and 1103 tokens",
       "evidence": [
-        "db-reconnect evidence=11"
+        "db-reconnect evidence=15"
       ]
     },
     {
       "id": "AC-06",
       "title": "Unknown external effect is not repeated",
       "status": "passed",
-      "detail": "run 01a160ba-3e0f-7309-90a6-67c7b10f3aae moved to waiting_operator with outcome_unknown; automatic resume refused (409); explicit reconciliation accepted",
+      "detail": "run 01a1610c-0e65-70bc-8e1e-264cf7fd9c97 moved to waiting_operator with outcome_unknown; automatic resume refused (409); explicit reconciliation accepted",
       "evidence": [
-        "01a160ba-3e0f-7309-90a6-67c7b10f3aae",
-        "01a160ba-3e10-75ad-bf66-201a884165ba"
+        "01a1610c-0e65-70bc-8e1e-264cf7fd9c97",
+        "01a1610c-0e70-7468-b770-6f9c10859379"
       ]
     },
     {
@@ -68,7 +68,7 @@
       "status": "passed",
       "detail": "authenticated page text captured as inert evidence; policy stayed at v1; effect counter stayed at 0",
       "evidence": [
-        "01a160ba-3e33-7312-8618-0eeaa3311eff",
+        "01a1610c-100f-70fd-bd40-1d7e6f262486",
         "policy_version=1"
       ]
     },
@@ -78,7 +78,7 @@
       "status": "passed",
       "detail": "10 concurrent reservations against a budget of 5: exactly 5 granted, spent=5",
       "evidence": [
-        "01a160ba-405d-71e6-9f81-e29b779737c9"
+        "01a1610c-21e9-7357-b87c-894a16efccf1"
       ]
     },
     {
@@ -87,16 +87,16 @@
       "status": "passed",
       "detail": "cancellation before dispatch left the target untouched; run ended cancelled",
       "evidence": [
-        "01a160ba-40c4-72b8-a075-a70797b5ff3d"
+        "01a1610c-23a0-72cf-a48a-df4f6376bf13"
       ]
     },
     {
       "id": "AC-10",
       "title": "Sanitized export omits secrets",
       "status": "passed",
-      "detail": "export 37104 bytes; manifest \"06d7a16e9bdceafbc0b4439f247f7b907a49dd739418f63c952a206f583aacf4\"; seeded secret, passwords and cookies absent",
+      "detail": "export 795384 bytes; manifest \"e77f77fffdab2d8ab6abd3a88866580644a089a38739d3df462fa1735a83dc36\"; seeded secret, passwords and cookies absent",
       "evidence": [
-        "01a160ba-48cc-7064-8d9c-f2bf0d06ed31"
+        "01a1610c-2cc9-76eb-87b3-d8846553d002"
       ]
     },
     {
@@ -105,26 +105,26 @@
       "status": "passed",
       "detail": "3/3 cross-workspace reads rejected with 403/404",
       "evidence": [
-        "/v1/assessments/01a160ba-387b-73a8-8cc7-2439bf259cff",
-        "/v1/assessments/01a160ba-387b-73a8-8cc7-2439bf259cff/inventory",
-        "/v1/assessments/01a160ba-387b-73a8-8cc7-2439bf259cff/evidence"
+        "/v1/assessments/01a1610b-ac18-70f4-9ab5-2c263a40f628",
+        "/v1/assessments/01a1610b-ac18-70f4-9ab5-2c263a40f628/inventory",
+        "/v1/assessments/01a1610b-ac18-70f4-9ab5-2c263a40f628/evidence"
       ]
     },
     {
       "id": "AC-12",
       "title": "New session resumes without repeating work",
       "status": "passed",
-      "detail": "flow 01a160ba-48ea-72c4-bd8a-f4f02858ec45 reproduced with 1 evidence items; a fresh context package for alice includes the flow and a persisted checkpoint",
+      "detail": "flow 01a1610c-2da4-71e5-92a8-0a1bccac5ecd reproduced with 6 evidence items; a fresh context package for alice includes the flow and a persisted checkpoint",
       "evidence": [
-        "01a160ba-48ea-72c4-bd8a-f4f02858ec45",
-        "01a160ba-48f5-70c1-8554-2e239a195fb3"
+        "01a1610c-2da4-71e5-92a8-0a1bccac5ecd",
+        "01a1610c-2ed7-70cd-aea2-7f0f5df6c9af"
       ]
     },
     {
       "id": "AC-13",
       "title": "Core works without optional integrations",
       "status": "passed",
-      "detail": "7 core adapters available; 3 procedure versions loaded; no Burp, Firecrawl or remote runtime used",
+      "detail": "5 core adapters available; 3 procedure versions loaded; no Burp, Firecrawl or remote runtime used",
       "evidence": [
         "http.capture",
         "discovery.import",
@@ -137,7 +137,7 @@
       "status": "passed",
       "detail": "retention expiry selected the object, removed the stored content and deleted metadata",
       "evidence": [
-        "01a160ba-38eb-743a-bd2a-81f58e308983"
+        "01a1610b-aeaa-727e-be1c-588f81376a87"
       ]
     }
   ],

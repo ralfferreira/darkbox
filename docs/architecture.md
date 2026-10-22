@@ -20,8 +20,9 @@ flowchart LR
     POLICY -->|allow / deny + rule| WORKER
     WORKER --> HTTP[Bounded HTTP client]
     WORKER --> CRAWL[Built-in crawler]
-    WORKER --> ADAPTER[Python adapter: JSON Lines]
-    WORKER --> OPT[Optional adapters]
+    WORKER --> ADAPTER[Python browser host: JSON over loopback]
+    API -->|starts and commands| ADAPTER
+    OPT[Optional adapters]
     OPT --> NMAP[Nmap: scoped TCP connect]
     OPT --> FC[Firecrawl: managed browser]
     OPT --> BURP[Burp MCP: history import]
@@ -37,9 +38,10 @@ flowchart LR
 ```
 
 There is no service per tool. Optional adapters live in `crates/integrations`
-and are called by the worker; the browser adapter remains a separate process.
-Capability detection decides whether an adapter can run, and the core flow
-never depends on an optional tool.
+and are called by the worker. The browser host is a separate process started by
+the API; it owns Playwright and every live context. Capability detection runs a
+JavaScript probe and reports the engine that actually started. The core flow
+never depends on an optional integration.
 
 ## Crates and dependency direction
 
@@ -181,9 +183,12 @@ requests.
   routes, which is how JS-only pages become candidates.
 - `http_observe` performs one bounded request, follows redirects manually and
   stores a sanitized exchange.
-- `browser_session` and `browser_flow` call the Python adapter. The adapter
-  enforces the same host/port/scheme/path policy for navigation, and receives
-  secret references rather than values.
+- `browser_session` and `browser_flow` use the interactive browser host. One
+  context is fixed to one assessment, identity and tenant. The adapter enforces
+  the same host/port/scheme/path policy on every request, receives secret
+  references rather than values, and returns semantic observations. Agent
+  browser actions also use this host but stay attached to the agent objective
+  and its aggregate budget.
 - `procedure_step` dispatches one of the three deterministic procedures.
 
 Budget reservations are a single SQL function with a row lock. Two workers

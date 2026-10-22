@@ -1,0 +1,162 @@
+{
+  "generated_at": "2026-10-22T01:02:44.052545+00:00",
+  "assessment_id": "01a16120-d81a-716a-b31c-2bc3437e35d3",
+  "planner_run_id": "01a16120-dd50-7514-9ad9-820b15e346a1",
+  "lab": "http://127.0.0.1:8080",
+  "api": "http://127.0.0.1:8787/v1",
+  "agent": "http://127.0.0.1:8790",
+  "criteria": [
+    {
+      "id": "AC-01",
+      "title": "Real browser executes JavaScript",
+      "status": "passed",
+      "detail": "playwright-chromium 153.0.8010.12 JavaScript probe available",
+      "evidence": [
+        "provider=playwright-chromium",
+        "version=153.0.8010.12"
+      ]
+    },
+    {
+      "id": "AC-02",
+      "title": "A path the agent was not given was discovered",
+      "status": "passed",
+      "detail": "Reports was reached by clicking a visible link, not from a supplied route",
+      "evidence": [
+        "01a16120-dd50-7514-9ad9-820b15e346a1"
+      ]
+    },
+    {
+      "id": "AC-03",
+      "title": "Filter interaction and functional result verified",
+      "status": "passed",
+      "detail": "period 2026-08 with margin >= 19 rendered one matching row in the page",
+      "evidence": [
+        "01a16120-dd50-7514-9ad9-820b15e346a1"
+      ]
+    },
+    {
+      "id": "AC-04",
+      "title": "Session preserved across several actions",
+      "status": "passed",
+      "detail": "10 actions used 1 browser context",
+      "evidence": [
+        "ctx-01a16120-dd50-7514-9ad9-820b15e346a1-01a16120-d82d-7585-afbc-e626baa7f19b-01a16120ddb777628d5e9c2f36e825a7"
+      ]
+    },
+    {
+      "id": "AC-05",
+      "title": "Two identities use separate contexts",
+      "status": "passed",
+      "detail": "alice and bob authenticated in two isolated contexts (2 keys)",
+      "evidence": [
+        "ctx-01a16120-f4e7-77d5-b9da-545ab1d9ad30-01a16120-d82d-7585-afbc-e626baa7f19b-01a16120f5047098b00dbf545488e0f8",
+        "ctx-01a16120-febc-7706-a772-1855255c56e9-01a16120-d831-76c0-8ed2-afd93b4123fd-01a16120fed372cb809b0e5043705514"
+      ]
+    },
+    {
+      "id": "AC-06",
+      "title": "Login is configurable beyond lab conventions",
+      "status": "passed",
+      "detail": "login used an identity-level login_config with an environment secret reference",
+      "evidence": [
+        "01a16121-088f-7356-a532-b53ea4627aa3"
+      ]
+    },
+    {
+      "id": "AC-07",
+      "title": "Progress is visible before completion",
+      "status": "passed",
+      "detail": "at running, 1 actions were visible at http://127.0.0.1:8080/",
+      "evidence": [
+        "http://127.0.0.1:8080/"
+      ]
+    },
+    {
+      "id": "AC-08",
+      "title": "A failed login cannot look authenticated",
+      "status": "passed",
+      "detail": "rejected credentials produced login_failed, a blocked action and no authenticated session",
+      "evidence": [
+        "01a16121-1694-708a-adef-13e6cf16b8ed"
+      ]
+    },
+    {
+      "id": "AC-09",
+      "title": "A blocked action is not executed",
+      "status": "passed",
+      "detail": "excluded path denied before dispatch; target saw zero hits",
+      "evidence": [
+        "01a16121-2065-7123-9c95-36db4d25c2ef"
+      ]
+    },
+    {
+      "id": "AC-10",
+      "title": "Cancellation interrupts model and browser work",
+      "status": "passed",
+      "detail": "cancel returned in 0.03s and stopped the in-flight browser action",
+      "evidence": [
+        "01a16121-24dd-7177-8744-937ba5c3db38"
+      ]
+    },
+    {
+      "id": "AC-11",
+      "title": "Evidence is linked and visual",
+      "status": "passed",
+      "detail": "10 traces and 8 screenshots linked to 01a16120-dd50-7514-9ad9-820b15e346a1; screenshot served as image/jpeg",
+      "evidence": [
+        "01a16120-f3f8-7383-9356-3b2a514eb167",
+        "01a16120-f3e1-7164-8021-b328234a6aa9",
+        "01a16120-f3ea-748f-92f0-bfdce00bb13b",
+        "01a16120-f3a0-7329-85ab-f23ab7b6b86f"
+      ]
+    },
+    {
+      "id": "AC-12",
+      "title": "Discovered flow is recorded",
+      "status": "passed",
+      "detail": "flow 01a16120-f40c-769f-82d8-c22a7b173866 recorded 7 discovered steps",
+      "evidence": [
+        "01a16120-f40c-769f-82d8-c22a7b173866"
+      ]
+    },
+    {
+      "id": "AC-13",
+      "title": "A new session continues from persisted state",
+      "status": "passed",
+      "detail": "partial objective persisted agent-84ad867b and the new session received 3 prior actions",
+      "evidence": [
+        "01a16121-2d79-7137-8b29-0d2b84ad867b",
+        "01a16121-3bc1-75f0-a6e2-38b4f1636c39"
+      ]
+    },
+    {
+      "id": "AC-14",
+      "title": "Unknown external outcome is not repeated",
+      "status": "passed",
+      "detail": "effect applied once, outcome_unknown persisted, no automatic retry accepted",
+      "evidence": [
+        "01a16121-3be7-730b-8b18-5dbe6e09d632"
+      ]
+    },
+    {
+      "id": "AC-15",
+      "title": "Local stack connectivity",
+      "status": "passed",
+      "detail": "API, agent (deterministic-planner) and browser (playwright-chromium) answered on the local contract",
+      "evidence": [
+        "/health",
+        "/v1/capabilities/browser"
+      ]
+    },
+    {
+      "id": "AC-16",
+      "title": "Complete run with a real model",
+      "status": "pending",
+      "detail": "not attempted; rerun with --real-model and a funded provider",
+      "evidence": []
+    }
+  ],
+  "passed": 15,
+  "failed": 0,
+  "pending": 1
+}

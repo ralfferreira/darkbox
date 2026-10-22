@@ -10,9 +10,12 @@ laboratory in this repository is a controlled target used to verify the
 promise; it is not a set of real customer systems.
 
 Version 0.3.0. The implementation follows `SPEC.md` (kept outside this
-repository by the maintainer) and the milestone plan. The acceptance harness
-covers AC-01 through AC-14 against the bundled lab. The last local run passed
-14 of 14 criteria; the report is in `docs/acceptance/latest.json`.
+repository by the maintainer) and the milestone plan. The original acceptance
+harness covers AC-01 through AC-14; the session 1 harness adds real browser
+exploration, cancellation, continuation and outcome-unknown checks. The last
+session 1 local run passed 15 of 15 independent criteria; the report is in
+`artifacts/session1/report.json`. The real-provider criterion remains pending
+because the configured provider account reports insufficient balance.
 
 ## What it does
 
@@ -44,8 +47,12 @@ covers AC-01 through AC-14 against the bundled lab. The last local run passed
   browser scrape for JavaScript-heavy pages, which is the main web tool for the
   agent. Burp imports proxy history over MCP without creating new traffic.
 - A bounded AI agent built on the Vercel AI SDK. It receives a context package,
-  chooses typed tools, records every message and tool call, and writes a
-  checkpoint. It has no shell and cannot exceed the run policy.
+  chooses typed tools over a real, persistent browser context, records every
+  action and observation, and writes a checkpoint. It has no shell and cannot
+  exceed the run policy.
+- A live exploration view that opens before the turn finishes. It shows the
+  current URL and screenshot, the semantic action it took, the observed result,
+  short decision summaries, completed and blocked work, budget and cancellation.
 
 ## What it deliberately does not do
 
@@ -65,30 +72,37 @@ Requirements: Rust stable, Node 20+, Docker, Python 3.9+.
 # 1. Database
 docker compose -f deploy/docker-compose.yml up -d postgres
 
-# 2. Core
+# 2. Browser runtime (Playwright Chromium, one time)
+python3 -m venv .venv
+.venv/bin/pip install -r adapters/browser-python/requirements.txt
+.venv/bin/playwright install chromium
+
+# 3. Core and laboratory
 export DATABASE_URL=postgres://darkbox:darkbox@127.0.0.1:5433/darkbox
 cargo build --workspace
 ./target/debug/darkbox migrate
 ./target/debug/darkbox seed
-
-# 3. Laboratory and API (two terminals)
-LAB_PORT=8080 EXCLUDED_PORT=9099 ./target/debug/darkbox-lab
+LAB_PORT=8080 EXCLUDED_PORT=9099 ./target/debug/darkbox-lab   # terminal 2
 
 DATABASE_URL=$DATABASE_URL \
 DARKBOX_BLOB_ROOT=./data/objects \
 DARKBOX_REPO_ROOT=. \
 DARKBOX_LAB_URL=http://127.0.0.1:8080 \
 DARKBOX_INLINE_WORKER=1 \
+DARKBOX_ADAPTER_PYTHON=$PWD/.venv/bin/python \
+DARKBOX_BROWSER_MODE=auto \
 LAB_ALICE_PASSWORD=alice-lab-pass \
 LAB_BOB_PASSWORD=bob-lab-pass \
-DARKBOX_BROWSER_MODE=mock \
-./target/debug/darkbox serve --bind 127.0.0.1:8787
+./target/debug/darkbox serve --bind 127.0.0.1:8787         # terminal 3
 
-# 4. Interface (third terminal)
-cd apps/web
-npm install
-npm run dev
+# 4. Interface
+cd apps/web && npm install && npm run dev                    # terminal 4
 ```
+
+The browser host is a separate process managed by the API. It is started on
+demand on a loopback port and reports its actual engine and browser version at
+`GET /v1/capabilities/browser`. `DARKBOX_BROWSER_MODE=mock` is an HTTP session
+client, not a browser, and interactive sessions are disabled in that mode.
 
 Open <http://127.0.0.1:5173> and use the local token `darkbox-dev-token`.
 The seed prints the workspace and assessment identifiers.
@@ -204,15 +218,17 @@ Click **Ask agent** on an assessment, give an objective, and follow the run.
 
 Tools available to the model:
 
-- `inventory_list`, `endpoint_observe`, `evidence_read`, `memory_search`
-- `firecrawl_scrape` (managed browser), `firecrawl_map`
-- `network_scan` (scoped Nmap), `flow_list`, `flow_reproduce`
-- `procedure_eligibility`, `finding_hypothesis`, `finish`
+- `browser_open`, `browser_observe`, `browser_navigate`, `browser_act`
+- `browser_login`, `browser_screenshot`, `browser_traffic`
+- `identity_list`, `inventory_list`, `evidence_read`, `memory_search`
+- `finish`
 
-Every tool is an operation exposed by the Rust API. The model never gets a
-terminal, a database connection or a secret. Policy, budgets, evidence
-ingestion and finding confirmation stay in the core. The agent service only
-proposes.
+Every browser action is one operation exposed by the Rust API and one row in
+the objective's action trail. The model never gets a terminal, a database
+connection or a secret. Policy, budgets, evidence ingestion, session state and
+the success condition stay in the core. The agent service only chooses the next
+action. The context carries the starting URL and the objective; it never carries
+the route or click sequence as a solution.
 
 To test without a provider, run the bundled mock:
 
@@ -224,6 +240,8 @@ DARKBOX_MODEL_API_KEY=mock DARKBOX_MODEL=mock-agent npm start
 ```
 
 See `apps/agent/README.md` for the full contract and failure behaviour.
+For the session 1 demonstration and the exact real-provider blocker, see
+`docs/session1.md`.
 
 ## Verify the promise
 
@@ -274,10 +292,13 @@ revokes future operations rather than expanding an existing run.
 
 ## Limitations (measured, not hidden)
 
-- The browser adapter's default mode is a deterministic HTTP client, not a
-  browser. It proves session isolation and flow reproduction; it does not
-  execute page JavaScript. Camoufox is an optional, pinned integration and is
-  reported as unavailable when not installed.
+- The browser path uses Playwright Chromium in this environment. Camoufox could
+  not be installed against the system Python 3.9: `pyobjc-core` failed to build.
+  The adapter reports that exact error and never labels Chromium as Camoufox.
+  The engine, version and JavaScript probe are shown in **Capabilities**.
+- A browser host lives in the API process. Restarting the API closes live
+  contexts; the stored session becomes `unknown` or `lost`, never silently
+  authenticated.
 - The Katana adapter is detected and reported as `degraded`, never silently
   used: Katana cannot guarantee a per-request scope decision, so scoped runs
   use the built-in bounded crawler. See `docs/adapters/katana.md`.
@@ -300,10 +321,10 @@ revokes future operations rather than expanding an existing run.
 - The agent requires a tool-calling OpenAI-compatible provider. Without a key
   the service reports `missing_model_key` and the UI disables the turn. The
   bundled mock exercises the tool loop without a provider.
-- Token and cost budgets are recorded per step. Model-call count is enforced
-  atomically; monetary cost is enforced when per-million-token rates are
-  configured. A provider that does not report usage leaves the cost estimate at
-  zero.
+- Model calls are reserved before the provider request and settled against the
+  same call id. A retry never books the call twice. A provider that does not
+  report usage is shown as `usage not reported`, not as zero consumed tokens.
+  Monetary cost is enforced when per-million-token rates are configured.
 - The agent proposes; it cannot confirm a finding, bypass scope or execute a
   shell. A hypothesis created by the agent still needs evidence and human
   review.
@@ -320,6 +341,8 @@ revokes future operations rather than expanding an existing run.
 - `docs/adapters/burp.md`: MCP capability probe and history import.
 - `docs/decisions/`: architecture decision records.
 - `docs/acceptance/latest.json`: the last recorded acceptance report.
+- `docs/session1.md`: real browser exploration, the demonstration, versions and
+  the remaining real-provider blocker.
 
 ## Security and contribution
 

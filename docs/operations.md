@@ -5,7 +5,8 @@
 - Rust stable (workspace pinned in `rust-toolchain.toml`).
 - Node 20 or newer for the interface.
 - PostgreSQL 17. The Compose file pins `postgres:17.6-alpine` on host port 5433.
-- Python 3.9 or newer for the browser adapter.
+- Python 3.9 or newer for the browser adapter; Playwright Chromium is installed
+  once from `adapters/browser-python/requirements.txt`.
 - Docker only for the database and optional images. The core runs without it.
 
 ## Configuration
@@ -20,8 +21,10 @@
 | `DARKBOX_WORKER_ID` | `worker-<pid>` | lease owner label |
 | `DARKBOX_LEASE_SECONDS` | `60` | step lease duration |
 | `DARKBOX_MAX_RESPONSE_BYTES` | `262144` | capture body cap |
-| `DARKBOX_ADAPTER_PYTHON` | `python3` | adapter interpreter |
-| `DARKBOX_BROWSER_MODE` | `auto` | `auto`, `mock` or `camoufox` |
+| `DARKBOX_ADAPTER_PYTHON` | `.venv/bin/python`, else `python3` | adapter interpreter |
+| `DARKBOX_BROWSER_MODE` | `auto` | `auto`, `playwright`, `camoufox` or one-shot `mock` |
+| `DARKBOX_BROWSER_DAEMON_URL` | unset | use an already-running browser host instead of spawning one |
+| `DARKBOX_BROWSER_TOKEN` | generated for a spawned host | bearer token for a shared host |
 | `DARKBOX_ADAPTER_TIMEOUT` | `120` | adapter wall clock limit |
 | `DARKBOX_RAW_EVIDENCE` | `0` | allow reading raw restricted objects |
 | `DARKBOX_MODEL_API_KEY` | unset | optional OpenAI-compatible key |
@@ -33,7 +36,9 @@
 | `DARKBOX_MODEL` | `gpt-4.1-mini` | tool-calling model |
 | `DARKBOX_AGENT_URL` | unset | agent service advertised to the API capability list |
 | `DARKBOX_AGENT_PORT` | `8790` | agent service port |
-| `DARKBOX_AGENT_MAX_STEPS` | `4` | default model-step cap |
+| `DARKBOX_AGENT_HOST` | `127.0.0.1` | bind host; use `0.0.0.0` in a container |
+| `DARKBOX_AGENT_MAX_STEPS` | `8` | default model-step cap |
+| `DARKBOX_AGENT_PLANNER` | unset | `deterministic` for the labelled functional test driver |
 | `VITE_AGENT_URL` | `http://127.0.0.1:8790` | UI agent endpoint |
 | `DARKBOX_MODEL_INPUT_MICROS_PER_MTOK` | `0` | optional input cost rate |
 | `DARKBOX_MODEL_OUTPUT_MICROS_PER_MTOK` | `0` | optional output cost rate |
@@ -51,6 +56,24 @@ Secrets for the lab adapter are `LAB_ALICE_PASSWORD` and
 `LAB_BOB_PASSWORD`. In a real assessment, store credentials in the
 installation's secret manager and put only the environment reference in the
 identity (`env:NAME`).
+
+## Browser runtime
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -r adapters/browser-python/requirements.txt
+.venv/bin/playwright install chromium
+.venv/bin/python adapters/browser-python/adapter.py --probe
+```
+
+The probe starts the real engine and executes JavaScript. Use
+`DARKBOX_BROWSER_MODE=mock` only for the legacy one-shot HTTP contract; it is
+not a browser and interactive sessions are refused.
+
+The API spawns one browser host on loopback. A target on the operator host is
+`host.docker.internal` from inside the API container, not `127.0.0.1`. Include
+that host and port in the assessment scope. A target in another Compose service
+uses its service name, for example `http://lab:8080`.
 
 ## First run
 
@@ -204,7 +227,8 @@ The acceptance report is a point-in-time proof, not a production dashboard.
 | Agent turn has no tool calls | the provider may not support tool calling; test with the bundled mock |
 | run stays queued | no worker; set `DARKBOX_INLINE_WORKER=1` or start `darkbox worker` |
 | all targets excluded | exclude list includes the whole host, or the port is missing from `allowed_ports` |
-| browser run blocked | adapter script missing, python missing, or secret env var unset |
+| browser run blocked | adapter script missing, Python missing, engine unavailable, or secret env var unset; `/v1/capabilities/browser` shows the engine probe |
+| browser session lost | the API restarted or the host was killed; open the session again instead of treating it as authenticated |
 | evidence download 404 | object was purged while metadata remains; check retention |
 | run waits for operator | an effect has `outcome_unknown`; reconcile explicitly |
 | SSE reconnects repeat events | deduplicate by `event_id`; reconnect with `after=<seq>` |

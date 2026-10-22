@@ -79,16 +79,38 @@ takes up to five targets and uses `note` as the scrape objective.
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| POST | `/assessments/{id}/agent/turns` | `AgentTurnRequest` | `AgentTurnResponse` (`run` + bounded `context`) |
+| POST | `/assessments/{id}/agent/turns` | `AgentTurnRequest` (`start_url`, `continue_from`, optional `model`) | `AgentTurnResponse` (`run` + bounded `context`) |
 | POST | `/runs/{id}/agent/events` | `{event_type, payload}` | `EventDto` |
-| POST | `/runs/{id}/agent/usage` | token counts and model | `RunSummary` |
-| POST | `/runs/{id}/agent/finish` | `{summary, next_steps, evidence_ids}` | run and memory page |
+| POST | `/runs/{id}/agent/usage` | `{phase: reserve\|settle, call_id, tokens, model}` | `RunSummary` |
+| POST | `/runs/{id}/agent/finish` | `{summary, next_steps, evidence_ids, outcome}` | run, memory page and optional flow |
 | POST | `/runs/{id}/agent/abort` | `{reason}` | `RunSummary` |
+| GET | `/runs/{id}/agent/checkpoint` | | objective, actions and persisted checkpoint |
+| POST | `/runs/{id}/browser/open` | `{url, identity_id, tenant, decision}` | action + observation + evidence |
+| GET | `/runs/{id}/browser/progress` | | run, actions, evidence, current page, model calls |
+| POST | `/runs/{id}/browser/observe` | `{session_key, decision}` | action + observation |
+| POST | `/runs/{id}/browser/navigate` | `{session_key, url, decision}` | action + observation |
+| POST | `/runs/{id}/browser/act` | `{session_key, action, decision}` | action + observation |
+| POST | `/runs/{id}/browser/login` | `{session_key, login}` | login state + observation |
+| POST | `/runs/{id}/browser/screenshot` | `{session_key}` | screenshot evidence |
+| POST | `/runs/{id}/browser/traffic` | `{session_key}` | traffic evidence |
+| POST | `/runs/{id}/browser/close` | `{session_key}` | close the context |
+| GET | `/capabilities/browser` | | functional engine probe |
 
 The agent service owns the model loop. The API owns the durable agent run,
 lease, model-call budget, transcript events, memory checkpoint and audit.
-Allowed event types are `agent.message`, `agent.tool_call`, `agent.tool_result`,
-`agent.usage` and `agent.note`.
+Allowed event types include `agent.message`, `agent.tool_call`,
+`agent.tool_result`, `agent.usage`, `agent.decision`, `agent.action`,
+`agent.browser_session`, `agent.progress`, `agent.checkpoint` and `agent.note`.
+
+`POST /runs/{id}/agent/usage` has two phases. `reserve` books one model call and
+one `call_id`; `settle` records the real tokens and cost against that same row.
+Repeating the same phase does not double count. Usage the provider does not
+report is stored as null with `usage_known=false`.
+
+`browser/*` routes are scoped to one agent objective. They reject a run that is
+not `running`. An action with `effect_status=outcome_unknown` moves the objective
+to `waiting_operator` and preserves a checkpoint; no further browser action is
+accepted until the operator reconciles it.
 
 ## Event envelope
 

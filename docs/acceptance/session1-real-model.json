@@ -1,0 +1,13 @@
+{
+  "attempted_at": "2026-10-22T00:00:16Z",
+  "provider": "DeepSeek OpenAI-compatible",
+  "base_url": "https://api.deepseek.com/v1",
+  "model": "deepseek-flash",
+  "run_id": "01a160e8-8ec3-701b-aa82-5e6c22b2ede2",
+  "assessment_id": "01a160e8-8e96-75b5-9593-60d5c7b60060",
+  "run_state": "failed",
+  "error": "Insufficient Balance (request_id: 8850bf36-6daa-4283-82fc-00a48d4ff832)",
+  "model_calls_reserved": 1,
+  "browser_actions": 0,
+  "conclusion": "The real-model criterion is pending. No success is claimed. The deterministic planner acceptance run is separate and is labelled in the run."
+}

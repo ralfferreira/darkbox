@@ -1,6 +1,32 @@
 # Changelog
 
-## Unreleased
+## Unreleased — session 1
+
+- Real interactive browser host on Playwright Chromium, with one persistent
+  context per assessment, identity and tenant, semantic page observations,
+  clicks/fills/selects/waits/back, screenshots and request/response traffic.
+  Camoufox is reported only when it actually starts; the pinned install failure
+  is exposed in the capability probe.
+- Configurable identity login (`login_url`, username/field hints, success and
+  failure markers) with the secret injected inside the adapter. Login success is
+  confirmed from the page, never from a 200 status.
+- Agent tools for the live browser. Every action belongs to the objective run,
+  inherits its pinned policy, pays from its aggregated budget and emits an
+  `agent.action` event with evidence.
+- Model-call reservation and settlement with idempotent call ids. Unknown usage
+  is shown as unknown.
+- Operator view opens immediately on objective creation and shows the current
+  URL, live screenshot, action/result trail, short decision summaries, completed
+  and blocked work, budget, cancel and checkpoint.
+- Exact evidence-by-run lookup, image evidence preview and a run-scoped browser
+  progress endpoint.
+- Synthetic lab report explorer rendered from an authenticated JavaScript fetch,
+  with filter state, a dynamic trace id and an out-of-band query oracle.
+- Slow-effect fixture and `outcome_unknown` handling; new-session continuation
+  from a persisted checkpoint.
+- Session 1 acceptance harness: 15 independent criteria passed locally; the
+  real-provider criterion is pending because the configured account reports
+  insufficient balance.
 
 - Bounded agent turns built on the Vercel AI SDK (`apps/agent`) with typed
   tools, durable agent runs, transcript events, model-call budgets and memory
